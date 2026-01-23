@@ -5,6 +5,17 @@ build/
 # MacOS Cache
 .DS_Store
 
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
 *.csv
 *.log
 *.json
