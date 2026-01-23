@@ -5,6 +5,8 @@ build/
 # MacOS Cache
 .DS_Store
 
+.cache/
+
 # Python-generated files
 __pycache__/
 *.py[oc]

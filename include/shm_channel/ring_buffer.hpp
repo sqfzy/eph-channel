@@ -60,20 +60,22 @@ public:
 
   // 带重试次数的推入
   bool try_push(const T &data, int max_retries = 0) noexcept {
-    for (int i = 0; i < max_retries; ++i) {
+    for (int i = 0; i <= max_retries; ++i) {
       if (push(data))
         return true;
-      _mm_pause();
+      if (i < max_retries)
+        _mm_pause();
     }
     return false;
   }
 
   // 带重试次数的弹出
   bool try_pop(T &out_data, int max_retries = 0) noexcept {
-    for (int i = 0; i < max_retries; ++i) {
+    for (int i = 0; i <= max_retries; ++i) {
       if (pop(out_data))
         return true;
-      _mm_pause();
+      if (i < max_retries)
+        _mm_pause();
     }
     return false;
   }
