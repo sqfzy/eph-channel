@@ -2,23 +2,20 @@
 
 #include "ring_buffer.hpp"
 #include "shared_memory.hpp"
-#include <string>
 #include <optional>
+#include <string>
 
 namespace shm {
 
 template <typename T, size_t Capacity = config::DEFAULT_CAPACITY>
-requires Shmable<T>
+  requires ShmData<T>
 class Sender {
 public:
   explicit Sender(std::string name) : shm_(std::move(name), true) {}
 
-  void send(const T &data) { shm_->push_blocking(data); }
+  void send(const T &data) { shm_->push(data); }
 
-  // [[nodiscard]] 提醒用户检查发送结果
-  [[nodiscard]] bool try_send(const T &data, int max_retries = 0) {
-    return shm_->try_push(data, max_retries);
-  }
+  [[nodiscard]] bool try_send(const T &data) { return shm_->try_push(data); }
 
   size_t size() const noexcept { return shm_->size(); }
   bool is_full() const noexcept { return shm_->full(); }
@@ -30,18 +27,18 @@ private:
 };
 
 template <typename T, size_t Capacity = config::DEFAULT_CAPACITY>
-requires Shmable<T>
+  requires ShmData<T>
 class Receiver {
 public:
   explicit Receiver(std::string name) : shm_(std::move(name), false) {}
 
-  T receive() { return shm_->pop_blocking(); }
-  
-  void receive(T& out) { shm_->pop_blocking(out); }
+  T receive() { return shm_->pop(); }
 
-  [[nodiscard]] std::optional<T> try_receive(int max_retries = 0) {
-    return shm_->try_pop(max_retries);
-  }
+  void receive(T &out) { shm_->pop(out); }
+
+  [[nodiscard]] bool try_receive(T &out) { return shm_->try_pop(out); }
+
+  std::optional<T> try_receive() { return shm_->try_pop(); }
 
   size_t size() const noexcept { return shm_->size(); }
   bool is_empty() const noexcept { return shm_->empty(); }
@@ -55,7 +52,13 @@ private:
 // 工厂函数
 template <typename T, size_t Capacity = config::DEFAULT_CAPACITY>
 auto channel(const std::string &name) {
-  return std::make_pair(Sender<T, Capacity>(name), Receiver<T, Capacity>(name));
-}
+  // 1. 显式先构造 Sender (Owner)，它负责创建共享内存文件
+  Sender<T, Capacity> sender(name);
 
+  // 2. 后构造 Receiver (User)，此时文件已存在
+  Receiver<T, Capacity> receiver(name);
+
+  // 3. 移动所有权并返回
+  return std::make_pair(std::move(sender), std::move(receiver));
+}
 } // namespace shm

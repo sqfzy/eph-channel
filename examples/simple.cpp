@@ -1,60 +1,70 @@
 #include "shm_channel/channel.hpp"
 #include <iostream>
 #include <thread>
+#include <unistd.h> // for fork
+#include <sys/wait.h> // for wait
 
 struct Message {
   int id;
   double value;
 };
 
-void sender_example() {
-  // 创建 Sender（自动创建共享内存）
-  shm::Sender<Message> sender("/demo");
-
-  std::cout << "[Sender] Sending 10 messages..." << std::endl;
+void run_sender() {
+  // 创建 Sender（自动创建共享内存，Owner）
+  shm::Sender<Message> sender("/demo_simple");
+  std::cout << "[Sender]   Shared Memory Created. Sending 10 messages..." << std::endl;
 
   for (int i = 0; i < 10; ++i) {
     Message msg{i, i * 1.5};
     sender.send(msg);
-    std::cout << "  Sent: id=" << msg.id << ", value=" << msg.value
-              << std::endl;
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    std::cout << "[Sender]   Sent: id=" << msg.id << ", value=" << msg.value << std::endl;
+    // 稍微慢一点，方便观察
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
   }
-
-  std::cout << "[Sender] Done." << std::endl;
+  std::cout << "[Sender]   Done. Exiting." << std::endl;
 }
 
-void receiver_example() {
-  // 等待 Sender 创建共享内存
-  std::this_thread::sleep_for(std::chrono::milliseconds(500));
+void run_receiver() {
+  // 稍微等待一下父进程创建共享内存文件
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-  // 创建 Receiver（连接到已有共享内存）
-  shm::Receiver<Message> receiver("/demo");
+  // 创建 Receiver（连接到已有共享内存，User）
+  try {
+    shm::Receiver<Message> receiver("/demo_simple");
+    std::cout << "[Receiver] Connected. Waiting for messages..." << std::endl;
 
-  std::cout << "[Receiver] Receiving 10 messages..." << std::endl;
-
-  for (int i = 0; i < 10; ++i) {
-    auto msg = receiver.receive();
-    std::cout << "  Received: id=" << msg.id << ", value=" << msg.value
-              << std::endl;
+    for (int i = 0; i < 10; ++i) {
+      auto msg = receiver.receive();
+      std::cout << "[Receiver] Received: id=" << msg.id << ", value=" << msg.value << std::endl;
+    }
+    std::cout << "[Receiver] Done. Exiting." << std::endl;
+  } catch (const std::exception& e) {
+    std::cerr << "[Receiver] Error: " << e.what() << std::endl;
   }
-
-  std::cout << "[Receiver] Done." << std::endl;
 }
 
-int main(int argc, char **argv) {
-  if (argc < 2) {
-    std::cerr << "Usage: " << argv[0] << " [sender|receiver]" << std::endl;
+int main() {
+  std::cout << "=== Simple SPSC Channel Demo (Auto-Fork) ===" << std::endl;
+  
+  // 使用 fork 创建子进程
+  pid_t pid = fork();
+
+  if (pid < 0) {
+    std::cerr << "Fork failed!" << std::endl;
     return 1;
   }
 
-  std::string mode = argv[1];
-  if (mode == "sender")
-    sender_example();
-  else if (mode == "receiver")
-    receiver_example();
-  else
-    std::cerr << "Unknown mode: " << mode << std::endl;
+  if (pid == 0) {
+    // --- 子进程充当消费者 (Receiver) ---
+    run_receiver();
+  } else {
+    // --- 父进程充当生产者 (Sender) ---
+    run_sender();
+
+    // 等待子进程结束，防止僵尸进程
+    wait(NULL);
+    std::cout << "=== Demo Finished ===" << std::endl;
+  }
 
   return 0;
 }

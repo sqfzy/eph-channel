@@ -1,5 +1,6 @@
 #pragma once
 
+#include "platform.hpp"
 #include "types.hpp"
 #include <atomic>
 #include <fcntl.h>
@@ -18,14 +19,19 @@ struct ShmHeader {
 };
 
 template <typename T>
-requires Shmable<T>
+  requires ShmLayout<T>
 class SharedMemory {
 public:
   // 数据布局：Header + Data
   // 使用 byte array 避免 T 被意外构造，我们手动控制生命周期
   struct Layout {
     ShmHeader header;
-    alignas(config::CACHE_LINE_SIZE) T data;
+
+    static constexpr size_t DataAlign = (alignof(T) > config::CACHE_LINE_SIZE)
+                                            ? alignof(T)
+                                            : config::CACHE_LINE_SIZE;
+
+    alignas(DataAlign) T data;
   };
 
   SharedMemory(std::string name, bool create)
@@ -107,7 +113,7 @@ private:
     if (create) {
       // Owner: Construct object locally first, then set initialized flag
       new (&layout_->data) T(); // Placement new
-      
+
       // Release 语义确保 T 的构造在 flag 变为 true 之前对其他核心可见
       layout_->header.initialized.store(true, std::memory_order_release);
     } else {
@@ -117,8 +123,9 @@ private:
       while (!layout_->header.initialized.load(std::memory_order_acquire)) {
         cpu_relax();
         if (++retries > 10000000) { // 防止无限死锁，加上超时机制
-           cleanup();
-           throw std::runtime_error("Timeout waiting for shared memory initialization");
+          cleanup();
+          throw std::runtime_error(
+              "Timeout waiting for shared memory initialization");
         }
       }
     }
@@ -128,9 +135,10 @@ private:
     if (layout_) {
       // 只有 owner 负责析构对象，但在 SHM 中，如果进程崩溃，
       // 对象可能不会被析构。对于 TriviallyCopyable 类型，通常不需要析构。
-      // 如果 T 有复杂的清理逻辑（不应该有，因为是 TriviallyCopyable），这里需要注意。
+      // 如果 T 有复杂的清理逻辑（不应该有，因为是
+      // TriviallyCopyable），这里需要注意。
       if (is_owner_) {
-          layout_->data.~T();
+        layout_->data.~T();
       }
       munmap(layout_, sizeof(Layout));
       layout_ = nullptr;

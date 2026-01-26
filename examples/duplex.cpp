@@ -1,77 +1,92 @@
 #include "shm_channel/duplex_channel.hpp"
 #include <iostream>
+#include <sys/wait.h>
 #include <thread>
+#include <unistd.h>
 
 struct Request {
   int x;
   int y;
 };
 
-struct Response {
-  int sum;
-};
+using Response = Request;
 
-// 为了简化，这里使用相同的类型
-using Message = Request;
+// -----------------------------------------------------------
+// Process A (Parent): Client (Owner) -> 发起计算请求 (x + y)
+// Process B (Child):  Server (User)  -> 接收请求，计算结果，返回
+// -----------------------------------------------------------
 
-void client_example() {
-  // 创建 DuplexSender
-  shm::DuplexSender<Message> client("/rpc");
+void run_client_process() {
+  // Client 作为 Owner 创建共享内存
+  shm::DuplexSender<Request> client("/demo_rpc");
+  std::cout << "[Client]   Launched. Waiting for server to join..."
+            << std::endl;
 
-  std::cout << "[Client] Waiting for server..." << std::endl;
+  // 简单的握手，确保对面准备好了
   client.handshake();
 
-  std::cout << "[Client] Sending requests..." << std::endl;
+  std::cout << "[Client]   Server ready. Sending 5 tasks..." << std::endl;
 
   for (int i = 0; i < 5; ++i) {
-    Message req{i, i * 2};
-    std::cout << "  Request: " << req.x << " + " << req.y << std::endl;
+    Request req{i, i * 10};
 
+    // 发送并阻塞等待回复
     auto resp = client.send_receive(req);
-    std::cout << "  Response: sum = " << resp.x << std::endl;
+
+    std::cout << "[Client]   Request: " << req.x << " + " << req.y
+              << " | Result: " << resp.x << std::endl;
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
   }
 
-  std::cout << "[Client] Done." << std::endl;
+  std::cout << "[Client]   Done." << std::endl;
 }
 
-void server_example() {
-  std::this_thread::sleep_for(std::chrono::milliseconds(500));
+void run_server_process() {
+  std::this_thread::sleep_for(
+      std::chrono::milliseconds(100)); // 等待 Client 创建内存
 
-  // 创建 DuplexReceiver
-  shm::DuplexReceiver<Message> server("/rpc");
+  try {
+    shm::DuplexReceiver<Request> server("/demo_rpc");
+    std::cout << "[Server]   Connected." << std::endl;
 
-  std::cout << "[Server] Ready." << std::endl;
-  server.handshake();
+    // 响应握手
+    server.handshake();
 
-  std::cout << "[Server] Processing requests..." << std::endl;
-
-  for (int i = 0; i < 5; ++i) {
-    server.receive_send([](const Message &req) -> Message {
-      Message resp;
-      resp.x = req.x + req.y;
-      resp.y = 0;
-      std::cout << "  Computing: " << req.x << " + " << req.y << " = "
-                << resp.x << std::endl;
-      return resp;
-    });
+    // 处理循环
+    for (int i = 0; i < 5; ++i) {
+      server.receive_send([](const Request &req) -> Response {
+        // 模拟计算逻辑
+        Response resp;
+        resp.x = req.x + req.y; // 计算和
+        resp.y = 0;             // 忽略
+        return resp;
+      });
+    }
+    std::cout << "[Server]   Processed all tasks. Exiting." << std::endl;
+  } catch (const std::exception &e) {
+    std::cerr << "[Server]   Error: " << e.what() << std::endl;
   }
-
-  std::cout << "[Server] Done." << std::endl;
 }
 
-int main(int argc, char **argv) {
-  if (argc < 2) {
-    std::cerr << "Usage: " << argv[0] << " [client|server]" << std::endl;
+int main() {
+  std::cout << "=== Duplex RPC Channel Demo (Auto-Fork) ===" << std::endl;
+
+  pid_t pid = fork();
+
+  if (pid < 0) {
     return 1;
   }
 
-  std::string mode = argv[1];
-  if (mode == "client")
-    client_example();
-  else if (mode == "server")
-    server_example();
-  else
-    std::cerr << "Unknown mode: " << mode << std::endl;
+  if (pid == 0) {
+    // 子进程运行 Server (响应端)
+    run_server_process();
+  } else {
+    // 父进程运行 Client (请求端)
+    run_client_process();
+    wait(NULL); // 等待子进程
+    std::cout << "=== Demo Finished ===" << std::endl;
+  }
 
   return 0;
 }

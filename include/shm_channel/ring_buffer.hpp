@@ -1,109 +1,146 @@
 #pragma once
 
+#include "platform.hpp"
 #include "types.hpp"
+#include <array>
 #include <atomic>
 #include <optional>
-#include <array>
 
 namespace shm {
 
+// SPSC: Single Producer Single Consumer Lock-Free RingBuffer
 template <typename T, size_t Capacity = config::DEFAULT_CAPACITY>
-requires Shmable<T>
+  requires ShmData<T>
 class RingBuffer {
   static_assert(std::has_single_bit(Capacity), "Capacity must be power of 2");
+  static constexpr size_t mask_ = Capacity - 1;
 
-public:
-  RingBuffer() noexcept {
-     // 显式初始化原子变量
-     head_.store(0, std::memory_order_relaxed);
-     tail_.store(0, std::memory_order_relaxed);
-  }
+  // 使用 alignas 确保独立的缓存行，避免 False Sharing
+  alignas(config::CACHE_LINE_SIZE) std::atomic<size_t> head_{0};
+  alignas(config::CACHE_LINE_SIZE) std::atomic<size_t> tail_{0};
 
-  // ---------------------------------------------------------------------------
-  // PUSH 操作
-  // ---------------------------------------------------------------------------
+  // 数据区对齐
+  static constexpr size_t BufferAlign = (alignof(T) > config::CACHE_LINE_SIZE)
+                                            ? alignof(T)
+                                            : config::CACHE_LINE_SIZE;
 
-  bool push(const T &data) noexcept {
+  alignas(BufferAlign) std::array<T, Capacity> buffer_;
+
+  // ===========================================================================
+  // 内核 (Kernels) - 单次原子操作
+  // ===========================================================================
+
+  template <typename F> bool raw_produce(F &&writer) noexcept {
     const size_t tail = tail_.load(std::memory_order_relaxed);
-    // Acquire: 确保读取到消费者更新后的 head_
     const size_t head = head_.load(std::memory_order_acquire);
 
     if (tail - head >= Capacity) {
       return false; // Full
     }
 
-    buffer_[tail & mask_] = data;
-    
-    // Release: 确保数据写入在 tail 更新之前完成
+    // 完美转发 writer，直接在 SHM 内存上操作
+    std::forward<F>(writer)(buffer_[tail & mask_]);
+
     tail_.store(tail + 1, std::memory_order_release);
     return true;
   }
 
-  void push_blocking(const T &data) noexcept {
-    // 简单的自旋策略，可以优化为指数退避
-    while (!push(data)) {
-      cpu_relax();
-    }
-  }
-
-  bool try_push(const T &data, int max_retries) noexcept {
-    for (int i = 0; i <= max_retries; ++i) {
-      if (push(data)) return true;
-      cpu_relax();
-    }
-    return false;
-  }
-
-  // ---------------------------------------------------------------------------
-  // POP 操作
-  // ---------------------------------------------------------------------------
-
-  std::optional<T> pop() noexcept {
+  template <typename F> bool raw_consume(F &&visitor) noexcept {
     const size_t head = head_.load(std::memory_order_relaxed);
-    // Acquire: 确保读取到生产者更新后的 tail_
     const size_t tail = tail_.load(std::memory_order_acquire);
 
     if (head == tail) {
-      return std::nullopt; // Empty
+      return false; // Empty
     }
 
-    T data = buffer_[head & mask_];
-    
-    // Release: 确保数据读取在 head 更新之前完成
+    std::forward<F>(visitor)(buffer_[head & mask_]);
+
     head_.store(head + 1, std::memory_order_release);
-    return data;
+    return true;
   }
 
-  // 阻塞弹出，返回 T (值语义)
-  T pop_blocking() noexcept {
-    std::optional<T> data;
-    while (!(data = pop())) {
+public:
+  RingBuffer() noexcept {
+    head_.store(0, std::memory_order_relaxed);
+    tail_.store(0, std::memory_order_relaxed);
+  }
+
+  // ===========================================================================
+  // PUSH 操作 (非阻塞 / 阻塞)
+  // ===========================================================================
+
+  // PERF: 尝试零拷贝写入
+  template <typename F> bool try_produce(F &&writer) noexcept {
+    return raw_produce(std::forward<F>(writer));
+  }
+
+  // PERF: 尝试 T 拷贝赋值
+  bool try_push(const T &data) noexcept {
+    return raw_produce([&data](T &slot) { slot = data; });
+  }
+
+  // PERF: 尝试 T 移动赋值
+  bool try_push(T &&data) noexcept {
+    return raw_produce([&data](T &slot) { slot = std::move(data); });
+  }
+
+  // PERF: 阻塞式零拷贝写入
+  template <typename F> void produce(F &&writer) noexcept {
+    while (!raw_produce(writer)) {
       cpu_relax();
     }
-    return *data;
   }
 
-  // 避免拷贝的阻塞弹出接口
-  void pop_blocking(T& out) noexcept {
-    while (true) {
-        // 内联逻辑以减少 optional 开销
-        const size_t head = head_.load(std::memory_order_relaxed);
-        const size_t tail = tail_.load(std::memory_order_acquire);
-        if (head != tail) {
-            out = buffer_[head & mask_];
-            head_.store(head + 1, std::memory_order_release);
-            return;
-        }
-        cpu_relax();
-    }
+  // PERF: 阻塞式 T 拷贝赋值
+  void push(const T &data) noexcept {
+    produce([&](T &slot) { slot = data; });
   }
 
-  std::optional<T> try_pop(int max_retries) noexcept {
-    for (int i = 0; i <= max_retries; ++i) {
-      if (auto val = pop()) return val;
-      cpu_relax();
+  // PERF: 阻塞式 T 移动赋值
+  void push(T &&data) noexcept {
+    produce([&](T &slot) { slot = std::move(data); });
+  }
+
+  // ===========================================================================
+  // POP 操作 (非阻塞 / 阻塞)
+  // ===========================================================================
+
+  // PERF: 尝试零拷贝读取
+  template <typename F> bool try_consume(F &&visitor) noexcept {
+    return raw_consume(std::forward<F>(visitor));
+  }
+
+  // PERF: 尝试 T 拷贝赋值 (复用内存)
+  bool try_pop(T &out) noexcept {
+    return raw_consume([&out](const T &data) { out = data; });
+  }
+
+  // PERF: 尝试 T 拷贝构造 (寄存器返回)
+  std::optional<T> try_pop() noexcept {
+    std::optional<T> res;
+    if (raw_consume([&res](const T &data) { res.emplace(data); })) {
+      return res;
     }
     return std::nullopt;
+  }
+
+  // PERF: 阻塞式零拷贝读取
+  template <typename F> void consume(F &&visitor) noexcept {
+    while (!raw_consume(visitor)) {
+      cpu_relax();
+    }
+  }
+
+  // PERF: 阻塞式 T 拷贝赋值
+  void pop(T &out) noexcept {
+    consume([&out](const T &data) { out = data; });
+  }
+
+  // PERF: 阻塞式 T 值返回
+  T pop() noexcept {
+    std::optional<T> res;
+    consume([&res](const T &data) { res.emplace(data); });
+    return *res;
   }
 
   // ---------------------------------------------------------------------------
@@ -119,16 +156,6 @@ public:
   bool empty() const noexcept { return size() == 0; }
   bool full() const noexcept { return size() >= Capacity; }
   static constexpr size_t capacity() noexcept { return Capacity; }
-
-private:
-  static constexpr size_t mask_ = Capacity - 1;
-
-  // 使用 alignas 确保独立的缓存行，避免 False Sharing
-  alignas(config::CACHE_LINE_SIZE) std::atomic<size_t> head_{0};
-  alignas(config::CACHE_LINE_SIZE) std::atomic<size_t> tail_{0};
-  
-  // 数据区对齐
-  alignas(config::CACHE_LINE_SIZE) std::array<T, Capacity> buffer_;
 };
 
 } // namespace shm

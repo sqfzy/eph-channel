@@ -45,6 +45,7 @@ target("benchmark_iox_ping_pong")
     set_kind("binary")
     add_files("benchmark/examples/iox_ping_pong.cpp")
     add_packages("iceoryx")
+    add_deps("shm-ring")
     add_deps("benchmark")
 
 target("unit_tests")
