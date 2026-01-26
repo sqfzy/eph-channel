@@ -4,10 +4,12 @@ let target = "benchmark_ping_pong_iox"
 
 def main [
     --path: string
+    --output_dir: string = "./outputs"
 ] {
     let path = ($path | default $"./build/linux/x86_64/release/($target)")
 
     # 1. 编译项目
+    xmake f -c --mode="release"
     print $"正在编译项目 ($path)..." 
     xmake build ($target)
 
@@ -37,5 +39,5 @@ def main [
 
     print "生成延迟报告..."
     source ../.venv/bin/activate.nu
-    python scripts/plot_latency.py iox_latency.csv iox_latency_report.html
+    python scripts/plot_latency.py ($output_dir)/bench_ping_pong_iox_latency.csv ($output_dir)/bench_ping_pong_iox_latency_report.html
 }

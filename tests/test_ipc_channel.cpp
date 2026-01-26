@@ -1,6 +1,8 @@
 #include "shm_channel/channel.hpp"
 #include <gtest/gtest.h>
 #include <thread>
+#include <chrono>
+#include <vector>
 
 using namespace shm;
 using namespace shm::ipc;
@@ -8,7 +10,7 @@ using namespace shm::ipc;
 class ChannelTest : public ::testing::Test {
 protected:
   // 使用唯一的 SHM 名称避免冲突
-  std::string shm_name = "/test_shm_channel_unit_test";
+  std::string shm_name = "/test_shm_ipc_channel_unit_test";
 
   void TearDown() override {
     // 强制清理，防止测试失败残留导致后续测试异常
@@ -66,6 +68,59 @@ TEST_F(ChannelTest, TrySendReceive) {
 
   // 还可以继续接收 2 个
   EXPECT_FALSE(receiver.is_empty());
+}
+
+TEST_F(ChannelTest, TimeoutOperations) {
+  auto [sender, receiver] = channel<int, 2>(shm_name);
+
+  // 填满 buffer
+  EXPECT_TRUE(sender.try_send(1));
+  EXPECT_TRUE(sender.try_send(2));
+
+  // 1. 测试发送超时 (Buffer Full)
+  auto start = std::chrono::steady_clock::now();
+  // 尝试发送，应该阻塞直到超时
+  bool sent = sender.send(3, std::chrono::milliseconds(50));
+  auto end = std::chrono::steady_clock::now();
+
+  EXPECT_FALSE(sent);
+  EXPECT_GE(end - start, std::chrono::milliseconds(50));
+
+  // 清空 buffer
+  receiver.receive(); 
+  receiver.receive();
+
+  // 2. 测试接收超时 (Buffer Empty)
+  start = std::chrono::steady_clock::now();
+  int val;
+  bool received = receiver.receive(val, std::chrono::milliseconds(50));
+  end = std::chrono::steady_clock::now();
+
+  EXPECT_FALSE(received);
+  EXPECT_GE(end - start, std::chrono::milliseconds(50));
+}
+
+TEST_F(ChannelTest, BatchOperations) {
+  auto [sender, receiver] = channel<int, 8>(shm_name);
+  std::vector<int> data = {1, 2, 3, 4, 5};
+
+  // 1. 批量发送
+  size_t sent_count = sender.send_batch(data.begin(), data.end());
+  EXPECT_EQ(sent_count, 5);
+  EXPECT_EQ(sender.size(), 5);
+
+  // 2. 批量接收
+  std::vector<int> out_data(5);
+  size_t recv_count = receiver.receive_batch(out_data.begin(), 5);
+  EXPECT_EQ(recv_count, 5);
+  EXPECT_EQ(out_data, data);
+  EXPECT_TRUE(receiver.is_empty());
+  
+  // 3. 测试 Buffer 空间不足时的批量发送
+  auto [s_small, r_small] = channel<int, 2>(shm_name + "_small");
+  size_t sent_small = s_small.send_batch(data.begin(), data.end());
+  EXPECT_EQ(sent_small, 2); // 只能发 2 个
+  EXPECT_TRUE(s_small.is_full());
 }
 
 TEST_F(ChannelTest, SimpleConcurrency) {

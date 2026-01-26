@@ -1,69 +1,83 @@
+set_project("shm_channel")
+set_version("1.0.0")
+
 add_rules("mode.debug", "mode.release")
 
-add_requires("tracy", "iceoryx", "gtest")
 set_languages("c++23")
-set_optimize("fastest")
---  显式生成调试符号 (相当于 -g)
-set_symbols("debug")
--- 禁止在链接阶段剥离符号 (防止 strip 移除 debug info)
-set_strip("none")
-add_cxflags("-march=native", "-Wall", "-pthread")
 
+if is_mode("release") then
+    set_optimize("fastest")
+end
+
+-----------------------------------------------------------------------------
+-- 依赖管理
+-----------------------------------------------------------------------------
+add_requires("benchmark")
 add_includedirs("/usr/include/iceoryx/v2.95.8")
+add_requires("iceoryx")
+add_requires("gtest")
+
+-----------------------------------------------------------------------------
+-- 核心库 (Header-only)
+-----------------------------------------------------------------------------
+target("shm_channel")
+set_kind("headeronly")
+-- 导出接口：让所有 add_deps(xxx) 的目标自动获得这些配置
+add_includedirs("include", { public = true })
+add_headerfiles("include/(shm_channel/*.hpp)")
 
 
+-----------------------------------------------------------------------------
+-- Examples
+-----------------------------------------------------------------------------
+for _, file in ipairs(os.files("examples/*.cpp")) do
+    -- 从路径中提取文件名（不带后缀），例如 "examples/ipc_channel.cpp" -> "ipc_channel"
+    local name = path.basename(file)
 
-
--- add_defines("TRACY_ENABLE") -- 开启 Tracy 内部的开关宏
-
-target("shm-ring")
-    set_kind("static")
-    add_includedirs("include", {public = true})
-
-target("benchmark")
-    set_kind("static")
-    add_includedirs("benchmark/include", {public = true})
-
-
-target("examples_ipc_channel")
+    target("example_" .. name)
     set_kind("binary")
-    add_files("examples/ipc_channel.cpp")
-    add_deps("shm-ring")
+    set_group("examples")
+    add_files(file)
+    add_deps("shm_channel")
+    add_syslinks("pthread")
+end
 
-target("examples_ipc_duplex")
-    set_kind("binary")
-    add_files("examples/ipc_duplex.cpp")
-    add_deps("shm-ring")
+-----------------------------------------------------------------------------
+-- Benchmarks
+-----------------------------------------------------------------------------
+if is_mode("release") then
+    for _, file in ipairs(os.files("benchmark/examples/*.cpp")) do
+        local name = path.basename(file)
 
-target("benchmark_ping_pong_ipc")
-    set_kind("binary")
-    add_files("benchmark/examples/ping_pong_ipc.cpp")
-    add_deps("shm-ring")
-    add_deps("benchmark")
+        target("benchmark_" .. name)
+        set_kind("binary")
+        set_group("benchmarks")
+        add_files(file)
+        add_deps("shm_channel")
+        add_includedirs("benchmark/include", "benchmark/examples")
 
-target("benchmark_ping_pong_itc")
-    set_kind("binary")
-    add_files("benchmark/examples/ping_pong_itc.cpp")
-    add_deps("shm-ring")
-    add_deps("benchmark")
+        if name:find("iox") then
+            add_packages("iceoryx")
+        else
+            add_packages("benchmark")
+        end
 
-target("benchmark_ping_pong_iox")
-    set_kind("binary")
-    add_files("benchmark/examples/ping_pong_iox.cpp")
-    add_packages("iceoryx")
-    add_deps("shm-ring")
-    add_deps("benchmark")
+        add_syslinks("pthread")
+    end
+end
 
-target("unit_tests")
+-----------------------------------------------------------------------------
+-- Tests
+-----------------------------------------------------------------------------
+for _, file in ipairs(os.files("tests/test_*.cpp")) do
+    local name = path.basename(file)
+    target("test_" .. name)
     set_kind("binary")
-    set_default(false) -- 默认不构建，除非显式指定或运行 xmake test
-    add_includedirs("include")
-    add_files("tests/*.cpp")
+    set_group("tests")
+    add_files(file)
+    add_files("tests/main.cpp")
+    add_deps("shm_channel")
     add_packages("gtest")
-    add_deps("shm-ring")
-    add_syslinks("pthread", "rt") 
-    -- 定义一个简单的运行规则
-    on_run(function (target)
-        os.exec(target:targetfile())
-    end)
-
+    set_default(false)
+    add_tests("default") -- 允许 xmake test 运行
+end

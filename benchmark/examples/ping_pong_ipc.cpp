@@ -23,7 +23,7 @@ int main() {
     run_consumer(std::move(receiver));
   } else {
     // 父进程运行生产者
-    run_producer(std::move(sender), "shm_ipc_latency");
+    run_producer(std::move(sender), "bench_ping_pong_ipc_latency");
   }
 
   return 0;

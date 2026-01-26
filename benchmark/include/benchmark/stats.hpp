@@ -3,11 +3,14 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
+#include <filesystem>
 #include <format>
 #include <fstream>
 #include <iostream>
 #include <string>
 #include <vector>
+
+namespace fs = std::filesystem;
 
 namespace benchmark {
 
@@ -29,6 +32,8 @@ public:
       std::cout << "[Stats] No samples to report." << std::endl;
       return;
     }
+
+    ensure_output_directory();
 
     // 先导出 CSV
     export_csv(title + ".csv");
@@ -59,7 +64,6 @@ public:
     double p999_v = samples_[static_cast<size_t>(n * 0.999)].latency_ns;
     double max_v = samples_.back().latency_ns;
 
-
     // 导出 JSON
     export_json(title, min_v, avg_v, p99_avg_v, p50_v, p99_v, p999_v, max_v);
 
@@ -70,9 +74,18 @@ public:
 
 private:
   std::vector<Sample> samples_;
+  const std::string output_dir_ = "outputs"; // 目录变量
+
+  void ensure_output_directory() {
+    if (!fs::exists(output_dir_)) {
+      fs::create_directories(output_dir_);
+    }
+  }
 
   void export_csv(const std::string &filename) {
-    std::ofstream file(filename);
+    fs::path full_path = fs::path(output_dir_) / filename;
+    std::ofstream file(full_path);
+
     file << "seq,latency_ns\n";
     for (const auto &s : samples_) {
       file << s.seq << "," << s.latency_ns << "\n";
@@ -88,7 +101,9 @@ private:
     std::string date_str = std::format("{:%Y-%m-%d_%H%M%S}", now_seconds);
     std::string filename = title + "_report_" + date_str + ".json";
 
-    std::ofstream json(filename);
+    fs::path full_path = fs::path(output_dir_) / filename;
+    std::ofstream json(full_path);
+
     json << "{\n"
          << "  \"title\": \"" << title << "\",\n"
          << "  \"date\": \"" << date_str << "\",\n"

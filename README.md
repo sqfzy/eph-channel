@@ -1,12 +1,17 @@
 # usage 
 see `exapmles`
 
-# shm-channel benchmar
+# run exapmles 
 ```
-nu "/home/sqfzy/work_space/work_code/cpp/shm-ring/scripts/bench_ping_pong.nu"
+xmake run --group=examples
 ```
 
-# iceoryx benchmark
+# run tests
 ```
-nu "/home/sqfzy/work_space/work_code/cpp/shm-ring/scripts/bench_iox_ping_pong.nu"
+xmake test
+```
+
+# run benchmarks
+```
+nu "./scripts/bench_all.nu"
 ```

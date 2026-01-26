@@ -19,7 +19,7 @@ int main() {
   });
 
   // 3. 在主线程运行生产者
-  run_producer(std::move(sender), "shm_itc_latency");
+  run_producer(std::move(sender), "bench_ping_pong_itc_latency");
 
   // 4. 等待消费者线程结束
   consumer_thread.join();

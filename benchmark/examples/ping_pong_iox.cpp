@@ -9,7 +9,6 @@
 #include <iceoryx_posh/runtime/posh_runtime.hpp>
 
 #include <iostream>
-#include <string_view>
 
 using namespace benchmark;
 
@@ -136,7 +135,7 @@ void run_producer() {
   });
 
   // 输出统计报告
-  stats.report("iox_latency");
+  stats.report("bench_ping_pong_iox_latency");
 }
 
 // -----------------------------------------------------------------------------

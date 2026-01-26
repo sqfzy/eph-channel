@@ -89,7 +89,7 @@ def plot_and_save_all(input, output):
     fig.update_yaxes(title_text="Density", row=3, col=1)
 
     # 4. 显示与保存
-    fig.show()
+    # fig.show()
     
     # 保存为交互式 HTML 文件
     fig.write_html(output)
