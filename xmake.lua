@@ -25,14 +25,14 @@ target("benchmark")
     add_includedirs("benchmark/include", {public = true})
 
 
-target("examples_simple")
+target("examples_ipc_channel")
     set_kind("binary")
-    add_files("examples/simple.cpp")
+    add_files("examples/ipc_channel.cpp")
     add_deps("shm-ring")
 
-target("examples_duplex")
+target("examples_ipc_duplex")
     set_kind("binary")
-    add_files("examples/duplex.cpp")
+    add_files("examples/ipc_duplex.cpp")
     add_deps("shm-ring")
 
 target("benchmark_ping_pong_ipc")
