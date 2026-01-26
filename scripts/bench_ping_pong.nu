@@ -43,6 +43,6 @@ def main [
     cat /tmp/shm_producer_output.log
 
     print "生成延迟报告..."
-    source ../scripts/.venv/bin/activate.nu
-    python scripts/main.py shm_latency.csv shm_latency_report.html
+    source ../.venv/bin/activate.nu
+    python scripts/plot_latency.py shm_latency.csv shm_latency_report.html
 }
