@@ -3,6 +3,7 @@
 #include <thread>
 
 using namespace shm;
+using namespace shm::ipc;
 
 class ChannelTest : public ::testing::Test {
 protected:

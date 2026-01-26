@@ -4,6 +4,8 @@
 #include <thread>
 #include <unistd.h>
 
+using namespace shm::ipc;
+
 struct Request {
   int x;
   int y;
@@ -18,12 +20,9 @@ using Response = Request;
 
 void run_client_process() {
   // Client 作为 Owner 创建共享内存
-  shm::DuplexSender<Request> client("/demo_rpc");
+  DuplexSender<Request> client("/demo_rpc");
   std::cout << "[Client]   Launched. Waiting for server to join..."
             << std::endl;
-
-  // 简单的握手，确保对面准备好了
-  client.handshake();
 
   std::cout << "[Client]   Server ready. Sending 5 tasks..." << std::endl;
 
@@ -47,11 +46,8 @@ void run_server_process() {
       std::chrono::milliseconds(100)); // 等待 Client 创建内存
 
   try {
-    shm::DuplexReceiver<Request> server("/demo_rpc");
+    DuplexReceiver<Request> server("/demo_rpc");
     std::cout << "[Server]   Connected." << std::endl;
-
-    // 响应握手
-    server.handshake();
 
     // 处理循环
     for (int i = 0; i < 5; ++i) {

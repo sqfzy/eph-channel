@@ -1,30 +1,33 @@
+#pragma once
+
 #include "benchmark/config.hpp"
 #include "benchmark/stats.hpp"
 #include "benchmark/system.hpp"
 #include "benchmark/timer.hpp"
-#include "shm_channel/duplex_channel.hpp"
 
 #include <iostream>
-#include <string_view>
-#include <thread>
+#include <string>
 
 using namespace benchmark;
 
 // -----------------------------------------------------------------------------
-// Producer
+// Generic Producer
 // -----------------------------------------------------------------------------
-void run_producer() {
+template <typename Sender>
+void run_producer(Sender sender, const std::string &report_name) {
+  // 绑定到指定核心
   System::pin_to_core(BenchConfig::PRODUCER_CORE);
   System::set_realtime_priority();
-
-  shm::DuplexSender<MarketData> sender(BenchConfig::SHM_NAME);
 
   TSCClock clock;
   StatsRecorder stats;
   stats.reserve(BenchConfig::ITERATIONS);
 
   std::cout << "[Producer] Waiting for consumer..." << std::endl;
-  sender.handshake();
+
+  // Handshake / Warmup
+  MarketData dummy{};
+  sender.send_receive(dummy);
 
   std::cout << "[Producer] Warmup (" << BenchConfig::WARMUP_ITERATIONS
             << " iterations)..." << std::endl;
@@ -40,42 +43,37 @@ void run_producer() {
     msg.sequence_id = i + 1;
 
     uint64_t t0 = TSCClock::now();
+    // 阻塞式发送并等待回响
     auto ack = sender.send_receive(msg);
     uint64_t t1 = TSCClock::now();
 
+    stats.add(i, clock.to_ns(t1 - t0) / 2.0);
+
     if (ack.sequence_id != msg.sequence_id) {
-      std::cerr << "Mismatch! Expected " << msg.sequence_id << ", got "
-                << ack.sequence_id << std::endl;
+      std::cerr << "Mismatch! Sent: " << msg.sequence_id
+                << " Recv: " << ack.sequence_id << std::endl;
       exit(1);
     }
-
-    stats.add(i, clock.to_ns(t1 - t0) / 2.0);
   }
 
-  std::cout << "[Producer] Sending termination signal..." << std::endl;
+  // 发送终止信号
   msg.sequence_id = BenchConfig::SEQ_TERMINATE;
-  auto ack = sender.send_receive(msg);
+  sender.send_receive(msg);
 
-  if (ack.sequence_id == BenchConfig::SEQ_TERMINATE) {
-    std::cout << "[Producer] Consumer acknowledged termination." << std::endl;
-  }
+  std::cout << "[Producer] Consumer acknowledged termination." << std::endl;
 
-  stats.report("shm_latency");
+  stats.report(report_name);
 }
 
 // -----------------------------------------------------------------------------
-// Consumer
+// Generic Consumer
 // -----------------------------------------------------------------------------
-void run_consumer() {
+template <typename Receiver>
+void run_consumer(Receiver receiver) {
   System::pin_to_core(BenchConfig::CONSUMER_CORE);
   System::set_realtime_priority();
 
-  std::this_thread::sleep_for(std::chrono::milliseconds(500));
-
-  shm::DuplexReceiver<MarketData> receiver(BenchConfig::SHM_NAME);
-
   std::cout << "[Consumer] Ready." << std::endl;
-  receiver.handshake();
 
   while (true) {
     bool should_exit = false;
@@ -92,24 +90,4 @@ void run_consumer() {
       break;
     }
   }
-}
-
-// -----------------------------------------------------------------------------
-// Main
-// -----------------------------------------------------------------------------
-int main(int argc, char **argv) {
-  if (argc < 2) {
-    std::cerr << "Usage: " << argv[0] << " [producer|consumer]" << std::endl;
-    return 1;
-  }
-
-  std::string_view mode = argv[1];
-  if (mode == "producer")
-    run_producer();
-  else if (mode == "consumer")
-    run_consumer();
-  else
-    std::cerr << "Unknown mode: " << mode << std::endl;
-
-  return 0;
 }

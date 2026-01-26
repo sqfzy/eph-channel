@@ -1,8 +1,10 @@
 #include "shm_channel/channel.hpp"
 #include <iostream>
 #include <thread>
-#include <unistd.h> // for fork
-#include <sys/wait.h> // for wait
+#include <unistd.h>
+#include <sys/wait.h>
+
+using namespace shm::ipc;
 
 struct Message {
   int id;
@@ -11,7 +13,7 @@ struct Message {
 
 void run_sender() {
   // 创建 Sender（自动创建共享内存，Owner）
-  shm::Sender<Message> sender("/demo_simple");
+  Sender<Message> sender("/demo_simple");
   std::cout << "[Sender]   Shared Memory Created. Sending 10 messages..." << std::endl;
 
   for (int i = 0; i < 10; ++i) {
@@ -30,7 +32,7 @@ void run_receiver() {
 
   // 创建 Receiver（连接到已有共享内存，User）
   try {
-    shm::Receiver<Message> receiver("/demo_simple");
+    Receiver<Message> receiver("/demo_simple");
     std::cout << "[Receiver] Connected. Waiting for messages..." << std::endl;
 
     for (int i = 0; i < 10; ++i) {

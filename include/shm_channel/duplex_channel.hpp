@@ -3,10 +3,11 @@
 #include "ring_buffer.hpp"
 #include "shared_memory.hpp"
 #include <functional>
+#include <memory>
 #include <optional>
 #include <string>
 
-namespace shm {
+namespace shm::ipc {
 
 template <typename T, size_t Capacity> struct DuplexLayout {
   static constexpr size_t RbAlign =
@@ -36,11 +37,6 @@ public:
     return shm_->c2p.try_pop();
   }
 
-  void handshake() {
-    T dummy{};
-    send_receive(dummy);
-  }
-
 private:
   SharedMemory<DuplexLayout<T, Capacity>> shm_;
 };
@@ -67,12 +63,84 @@ public:
     return shm_->c2p.try_push(response);
   }
 
-  void handshake() {
-    receive_send([](const T &) { return T{}; });
-  }
-
 private:
   SharedMemory<DuplexLayout<T, Capacity>> shm_;
 };
 
-} // namespace shm
+template <typename T, size_t Capacity = config::DEFAULT_CAPACITY>
+auto duplex_channel(const std::string &name) {
+  auto sender = DuplexSender<T, Capacity>(name);
+  auto receiver = DuplexReceiver<T, Capacity>(name);
+
+  return std::make_pair(std::move(sender), std::move(receiver));
+}
+
+} // namespace shm::ipc
+
+namespace shm::itc {
+
+template <typename T, size_t Capacity = config::DEFAULT_CAPACITY>
+  requires ShmData<T>
+class DuplexSender {
+public:
+  DuplexSender(std::shared_ptr<RingBuffer<T, Capacity>> p2c,
+               std::shared_ptr<RingBuffer<T, Capacity>> c2p)
+      : p2c_(std::move(p2c)), c2p_(std::move(c2p)) {}
+
+  T send_receive(const T &request) {
+    p2c_->push(request);
+    return c2p_->pop();
+  }
+
+  [[nodiscard]] std::optional<T> try_send_receive(const T &request) {
+    if (!p2c_->try_push(request)) {
+      return std::nullopt;
+    }
+    return c2p_->try_pop();
+  }
+
+private:
+  std::shared_ptr<RingBuffer<T, Capacity>> p2c_;
+  std::shared_ptr<RingBuffer<T, Capacity>> c2p_;
+};
+
+template <typename T, size_t Capacity = config::DEFAULT_CAPACITY>
+  requires ShmData<T>
+class DuplexReceiver {
+public:
+  DuplexReceiver(std::shared_ptr<RingBuffer<T, Capacity>> p2c,
+                 std::shared_ptr<RingBuffer<T, Capacity>> c2p)
+      : p2c_(std::move(p2c)), c2p_(std::move(c2p)) {}
+
+  void receive_send(std::function<T(const T &)> handler) {
+    T request;
+    p2c_->pop(request);
+    T response = handler(request);
+    c2p_->push(response);
+  }
+
+  [[nodiscard]] bool try_receive_send(std::function<T(const T &)> handler) {
+    T request;
+    if (!p2c_->try_pop(request)) {
+      return false;
+    }
+    T response = handler(request);
+    c2p_->push(response);
+    return true;
+  }
+
+private:
+  std::shared_ptr<RingBuffer<T, Capacity>> p2c_;
+  std::shared_ptr<RingBuffer<T, Capacity>> c2p_;
+};
+
+template <typename T, size_t Capacity = config::DEFAULT_CAPACITY>
+auto duplex_channel() {
+  auto p2c = std::make_shared<RingBuffer<T, Capacity>>();
+  auto c2p = std::make_shared<RingBuffer<T, Capacity>>();
+
+  return std::make_pair(DuplexSender<T, Capacity>(p2c, c2p),
+                        DuplexReceiver<T, Capacity>(p2c, c2p));
+}
+
+} // namespace shm::itc

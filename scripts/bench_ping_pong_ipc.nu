@@ -1,6 +1,6 @@
 #!/usr/bin/env nu
 
-let target = "benchmark_ping_pong"
+let target = "benchmark_ping_pong_ipc"
 
 def main [
     --path: string
@@ -28,7 +28,7 @@ def main [
 
     # 启动生产者
     print "启动生产者..."
-    job spawn { sudo $path producer | save -f /tmp/shm_producer_output.log }
+    job spawn { sudo $path producer | save -f /tmp/shm_ipc_producer_output.log }
 
     # 稍微等待确保初始化
     sleep 1ms 
@@ -40,9 +40,9 @@ def main [
     sleep 1sec
 
     print "测试完成。查看生产者输出日志："
-    cat /tmp/shm_producer_output.log
+    cat /tmp/shm_ipc_producer_output.log
 
     print "生成延迟报告..."
     source ../.venv/bin/activate.nu
-    python scripts/plot_latency.py shm_latency.csv shm_latency_report.html
+    python scripts/plot_latency.py shm_ipc_latency.csv shm_ipc_latency_report.html
 }

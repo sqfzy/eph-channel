@@ -2,10 +2,11 @@
 
 #include "ring_buffer.hpp"
 #include "shared_memory.hpp"
+#include <memory>
 #include <optional>
 #include <string>
 
-namespace shm {
+namespace shm::ipc {
 
 template <typename T, size_t Capacity = config::DEFAULT_CAPACITY>
   requires ShmData<T>
@@ -61,4 +62,60 @@ auto channel(const std::string &name) {
   // 3. 移动所有权并返回
   return std::make_pair(std::move(sender), std::move(receiver));
 }
-} // namespace shm
+} // namespace shm::ipc
+
+
+
+namespace shm::itc {
+
+template <typename T, size_t Capacity = config::DEFAULT_CAPACITY>
+  requires ShmData<T>
+class Sender {
+public:
+  // 接管 RingBuffer 的共享所有权
+  explicit Sender(std::shared_ptr<RingBuffer<T, Capacity>> buffer)
+      : buffer_(std::move(buffer)) {}
+
+  void send(const T &data) { buffer_->push(data); }
+
+  [[nodiscard]] bool try_send(const T &data) { return buffer_->try_push(data); }
+
+  size_t size() const noexcept { return buffer_->size(); }
+  bool is_full() const noexcept { return buffer_->full(); }
+  static constexpr size_t capacity() noexcept { return Capacity; }
+
+private:
+  std::shared_ptr<RingBuffer<T, Capacity>> buffer_;
+};
+
+template <typename T, size_t Capacity = config::DEFAULT_CAPACITY>
+  requires ShmData<T>
+class Receiver {
+public:
+  explicit Receiver(std::shared_ptr<RingBuffer<T, Capacity>> buffer)
+      : buffer_(std::move(buffer)) {}
+
+  T receive() { return buffer_->pop(); }
+
+  void receive(T &out) { buffer_->pop(out); }
+
+  [[nodiscard]] bool try_receive(T &out) { return buffer_->try_pop(out); }
+
+  std::optional<T> try_receive() { return buffer_->try_pop(); }
+
+  size_t size() const noexcept { return buffer_->size(); }
+  bool is_empty() const noexcept { return buffer_->empty(); }
+  static constexpr size_t capacity() noexcept { return Capacity; }
+
+private:
+  std::shared_ptr<RingBuffer<T, Capacity>> buffer_;
+};
+
+template <typename T, size_t Capacity = config::DEFAULT_CAPACITY>
+auto channel() {
+  auto buffer = std::make_shared<RingBuffer<T, Capacity>>();
+  return std::make_pair(Sender<T, Capacity>(buffer),
+                        Receiver<T, Capacity>(buffer));
+}
+
+} // namespace shm::thread
