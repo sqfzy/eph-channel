@@ -33,22 +33,7 @@ def main [
     print "等待 RouDi 初始化..."
     sleep 1sec
 
-
-    # 启动生产者
-    print "启动生产者..."
-    job spawn { sudo $path producer | save -f /tmp/iox_producer_output.log }
-
-    # 稍微等待确保初始化
-    sleep 1ms 
-
-    # 启动消费者
-    print "启动消费者..."
-    sudo $path consumer
-
-    sleep 1sec
-
-    print "测试完成。查看生产者输出日志："
-    cat /tmp/iox_producer_output.log
+    sudo $path
 
     print "生成延迟报告..."
     source ../.venv/bin/activate.nu

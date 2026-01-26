@@ -200,23 +200,20 @@ void run_consumer() {
 // Main
 // -----------------------------------------------------------------------------
 int main(int argc, char **argv) {
-  if (argc < 2) {
-    std::cerr << "Usage: " << argv[0] << " [producer|consumer]" << std::endl;
-    std::cerr << "\nMake sure RouDi is running before starting:" << std::endl;
-    std::cerr << "  iox-roudi" << std::endl;
+  std::cout << "Starting Iceoryx (Iox) Ping-Pong Benchmark..." << std::endl;
+
+  pid_t pid = fork();
+  if (pid < 0) {
+    std::cerr << "Fork failed!" << std::endl;
     return 1;
   }
 
-  std::string_view mode = argv[1];
-
-  if (mode == "producer") {
-    run_producer();
-  } else if (mode == "consumer") {
+  if (pid == 0) {
+    // 子进程运行消费者
     run_consumer();
   } else {
-    std::cerr << "Unknown mode: " << mode << std::endl;
-    std::cerr << "Valid modes: producer, consumer" << std::endl;
-    return 1;
+    // 父进程运行生产者
+    run_producer();
   }
 
   return 0;
