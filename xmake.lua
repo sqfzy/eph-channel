@@ -1,4 +1,4 @@
-set_project("shm_channel")
+set_project("eph_channel")
 set_version("1.0.0")
 
 add_rules("mode.debug", "mode.release")
@@ -20,11 +20,11 @@ add_requires("gtest")
 -----------------------------------------------------------------------------
 -- 核心库 (Header-only)
 -----------------------------------------------------------------------------
-target("shm_channel")
+target("eph_channel")
 set_kind("headeronly")
 -- 导出接口：让所有 add_deps(xxx) 的目标自动获得这些配置
 add_includedirs("include", { public = true })
-add_headerfiles("include/(shm_channel/*.hpp)")
+add_headerfiles("include/(eph_channel/*.hpp)")
 
 
 -----------------------------------------------------------------------------
@@ -38,7 +38,7 @@ for _, file in ipairs(os.files("examples/*.cpp")) do
     set_kind("binary")
     set_group("examples")
     add_files(file)
-    add_deps("shm_channel")
+    add_deps("eph_channel")
     add_syslinks("pthread")
 end
 
@@ -53,7 +53,7 @@ if is_mode("release") then
         set_kind("binary")
         set_group("benchmarks")
         add_files(file)
-        add_deps("shm_channel")
+        add_deps("eph_channel")
         add_includedirs("benchmark/include", "benchmark/examples")
 
         if name:find("iox") then
@@ -69,14 +69,14 @@ end
 -----------------------------------------------------------------------------
 -- Tests
 -----------------------------------------------------------------------------
-for _, file in ipairs(os.files("tests/test_*.cpp")) do
+for _, file in ipairs(os.files("tests/*.cpp")) do
     local name = path.basename(file)
     target("test_" .. name)
     set_kind("binary")
     set_group("tests")
     add_files(file)
     add_files("tests/main.cpp")
-    add_deps("shm_channel")
+    add_deps("eph_channel")
     add_packages("gtest")
     set_default(false)
     add_tests("default") -- 允许 xmake test 运行

@@ -13,9 +13,8 @@ using namespace benchmark;
 // -----------------------------------------------------------------------------
 // Generic Producer
 // -----------------------------------------------------------------------------
-template <typename Sender>
-void run_producer(Sender sender, const std::string &report_name) {
-  // 绑定到指定核心
+template <typename Tx, typename Rx>
+void run_producer(Tx tx, Rx rx, const std::string &report_name) {
   System::pin_to_core(BenchConfig::PRODUCER_CORE);
   System::set_realtime_priority();
 
@@ -27,24 +26,29 @@ void run_producer(Sender sender, const std::string &report_name) {
 
   // Handshake / Warmup
   MarketData dummy{};
-  sender.send_receive(dummy);
+  tx.send(dummy);     // 发送
+  rx.receive(dummy); // 假设 receive 是阻塞的
 
   std::cout << "[Producer] Warmup (" << BenchConfig::WARMUP_ITERATIONS
             << " iterations)..." << std::endl;
   MarketData msg{};
   for (int i = 0; i < BenchConfig::WARMUP_ITERATIONS; ++i) {
-    sender.send_receive(msg);
+    tx.send(msg);
+    rx.receive(msg);
   }
 
   std::cout << "[Producer] Running benchmark (" << BenchConfig::ITERATIONS
             << " iterations)..." << std::endl;
 
+  MarketData ack; // 用于接收响应
   for (int i = 0; i < BenchConfig::ITERATIONS; ++i) {
     msg.sequence_id = i + 1;
 
     uint64_t t0 = TSCClock::now();
-    // 阻塞式发送并等待回响
-    auto ack = sender.send_receive(msg);
+    
+    tx.send(msg);
+    rx.receive(ack); // 假设 receive 是阻塞的
+
     uint64_t t1 = TSCClock::now();
 
     stats.add(i, clock.to_ns(t1 - t0) / 2.0);
@@ -58,7 +62,8 @@ void run_producer(Sender sender, const std::string &report_name) {
 
   // 发送终止信号
   msg.sequence_id = BenchConfig::SEQ_TERMINATE;
-  sender.send_receive(msg);
+  tx.send(msg);
+  rx.receive(ack); // 等待确认
 
   std::cout << "[Producer] Consumer acknowledged termination." << std::endl;
 
@@ -68,26 +73,25 @@ void run_producer(Sender sender, const std::string &report_name) {
 // -----------------------------------------------------------------------------
 // Generic Consumer
 // -----------------------------------------------------------------------------
-template <typename Receiver>
-void run_consumer(Receiver receiver) {
+template <typename Rx, typename Tx>
+void run_consumer(Rx rx, Tx tx) {
   System::pin_to_core(BenchConfig::CONSUMER_CORE);
   System::set_realtime_priority();
 
   std::cout << "[Consumer] Ready." << std::endl;
 
+  MarketData req;
   while (true) {
-    bool should_exit = false;
+    // 阻塞接收请求
+    rx.receive(req);
 
-    receiver.receive_send([&](const MarketData &req) -> MarketData {
-      if (req.sequence_id == BenchConfig::SEQ_TERMINATE) {
-        should_exit = true;
-      }
-      return req; // Echo
-    });
-
-    if (should_exit) {
-      std::cout << "[Consumer] Termination received. Exiting." << std::endl;
-      break;
+    if (req.sequence_id == BenchConfig::SEQ_TERMINATE) {
+        tx.send(req); // 回复终止确认
+        std::cout << "[Consumer] Termination received. Exiting." << std::endl;
+        break;
     }
+
+    // 回显 (Echo)
+    tx.send(req);
   }
 }

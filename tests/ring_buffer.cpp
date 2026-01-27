@@ -1,7 +1,7 @@
-#include "shm_channel/ring_buffer.hpp"
+#include "eph_channel/ring_buffer.hpp"
 #include <gtest/gtest.h>
 
-using namespace shm;
+using namespace eph;
 
 class RingBufferTest : public ::testing::Test {
 protected:

@@ -2,12 +2,12 @@
 
 #include <atomic>
 
-namespace shm {
+namespace eph {
 
 namespace config {
 constexpr size_t CACHE_LINE_SIZE = 64;
 constexpr size_t DEFAULT_CAPACITY = 1024;
-} // namespace config
+}
 
 // [数据约束]
 // 约束 RingBuffer 中存放的元素 T：
@@ -30,4 +30,4 @@ concept ShmLayout =
 template <typename T>
 concept LockFreeAtomic = std::atomic<T>::is_always_lock_free;
 
-} // namespace shm
+}

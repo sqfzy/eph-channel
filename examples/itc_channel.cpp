@@ -1,9 +1,9 @@
-#include "shm_channel/channel.hpp"
+#include "eph_channel/channel.hpp"
 #include <iostream>
 #include <thread>
 #include <chrono>
 
-using namespace shm::itc;
+using namespace eph::itc;
 
 struct Message {
   int id;
@@ -36,7 +36,7 @@ void run_receiver(Receiver<Message> receiver) {
 }
 
 int main() {
-  std::cout << "=== Simple ITC Channel Demo (Threads) ===" << std::endl;
+  std::cout << "=== Simple ITC Channel Demo ===" << std::endl;
 
   // 1. 创建基于堆内存（shared_ptr）的通道
   auto [sender, receiver] = channel<Message>();

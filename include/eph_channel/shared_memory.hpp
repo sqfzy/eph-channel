@@ -3,6 +3,7 @@
 #include "platform.hpp"
 #include "types.hpp"
 #include <atomic>
+#include <chrono>
 #include <fcntl.h>
 #include <stdexcept>
 #include <string>
@@ -11,7 +12,7 @@
 #include <unistd.h>
 #include <utility>
 
-namespace shm {
+namespace eph {
 
 // 共享内存头部，用于同步初始化状态
 struct ShmHeader {
@@ -117,12 +118,11 @@ private:
       // Release 语义确保 T 的构造在 flag 变为 true 之前对其他核心可见
       layout_->header.initialized.store(true, std::memory_order_release);
     } else {
-      // User: Wait for Owner to finish initialization
-      // Acquire 语义确保我们在看到 flag 为 true 后，读取到的 data 是初始化好的
-      int retries = 0;
+      auto start = std::chrono::steady_clock::now();
       while (!layout_->header.initialized.load(std::memory_order_acquire)) {
         cpu_relax();
-        if (++retries > 10000000) { // 防止无限死锁，加上超时机制
+        if (std::chrono::steady_clock::now() - start >
+            std::chrono::seconds(5)) {
           cleanup();
           throw std::runtime_error(
               "Timeout waiting for shared memory initialization");
@@ -153,4 +153,4 @@ private:
   }
 };
 
-} // namespace shm
+} 

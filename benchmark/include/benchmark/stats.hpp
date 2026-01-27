@@ -99,7 +99,7 @@ private:
     auto now = std::chrono::system_clock::now();
     auto now_seconds = std::chrono::floor<std::chrono::seconds>(now);
     std::string date_str = std::format("{:%Y-%m-%d_%H%M%S}", now_seconds);
-    std::string filename = title + "_report_" + date_str + ".json";
+    std::string filename = title  + date_str + ".json";
 
     fs::path full_path = fs::path(output_dir_) / filename;
     std::ofstream json(full_path);

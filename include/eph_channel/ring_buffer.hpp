@@ -6,7 +6,7 @@
 #include <atomic>
 #include <optional>
 
-namespace shm {
+namespace eph {
 
 // SPSC: Single Producer Single Consumer Lock-Free RingBuffer
 template <typename T, size_t Capacity = config::DEFAULT_CAPACITY>

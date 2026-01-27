@@ -6,7 +6,7 @@
 #include <immintrin.h>
 #endif
 
-namespace shm {
+namespace eph {
 
 // CPU 自旋等待策略
 inline void cpu_relax() noexcept {

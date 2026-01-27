@@ -1,25 +1,31 @@
 #include "benchmark/config.hpp"
 #include "ping_pong_common.hpp"
-#include "shm_channel/duplex_channel.hpp"
+#include "eph_channel/channel.hpp"
 
 #include <iostream>
+#include <thread>
 
 using namespace benchmark;
-using namespace shm::itc;
+using namespace eph::itc;
 
 int main() {
   std::cout << "Starting Thread (ITC) Ping-Pong Benchmark..." << std::endl;
 
-  // 1. 创建线程间通信通道
-  auto [sender, receiver] = duplex_channel<MarketData>();
+  // 1. 创建两个单向通道
+  // p2c: Producer -> Consumer
+  auto [p2c_tx, p2c_rx] = channel<MarketData>();
+  // c2p: Consumer -> Producer
+  auto [c2p_tx, c2p_rx] = channel<MarketData>();
 
   // 2. 启动消费者线程
-  std::thread consumer_thread([recv = std::move(receiver)]() mutable {
-    run_consumer(std::move(recv));
+  // 消费者持有 p2c 的接收端 和 c2p 的发送端
+  std::thread consumer_thread([rx = std::move(p2c_rx), tx = std::move(c2p_tx)]() mutable {
+    run_consumer(std::move(rx), std::move(tx));
   });
 
   // 3. 在主线程运行生产者
-  run_producer(std::move(sender), "bench_ping_pong_itc_latency");
+  // 生产者持有 p2c 的发送端 和 c2p 的接收端
+  run_producer(std::move(p2c_tx), std::move(c2p_rx), "bench_ping_pong_itc_latency");
 
   // 4. 等待消费者线程结束
   consumer_thread.join();

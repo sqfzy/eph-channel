@@ -2,7 +2,7 @@
 #include "benchmark/stats.hpp"
 #include "benchmark/system.hpp"
 #include "benchmark/timer.hpp"
-#include "shm_channel/platform.hpp"
+#include "eph_channel/platform.hpp"
 
 #include <iceoryx_posh/popo/publisher.hpp>
 #include <iceoryx_posh/popo/subscriber.hpp>
@@ -18,7 +18,7 @@ using namespace benchmark;
 template <typename T> void wait_for_data(iox::popo::Subscriber<T> &sub) {
   while (!sub.hasData()) {
     // 自旋等待
-    shm::cpu_relax();
+    eph::cpu_relax();
   }
 }
 

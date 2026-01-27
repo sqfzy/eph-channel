@@ -28,7 +28,7 @@ private:
   double ns_per_cycle_ = 0.0;
 
   void calibrate() {
-    std::cout << "[Timer] Calibrating TSC (100ms)... " << std::flush;
+    std::cout << "[Timer] Calibrating TSC (100ms)... \n" << std::flush;
 
     auto t1 = std::chrono::steady_clock::now();
     uint64_t c1 = now();
