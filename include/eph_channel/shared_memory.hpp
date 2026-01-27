@@ -1,43 +1,30 @@
 #pragma once
 
-#include "platform.hpp"
 #include "types.hpp"
 #include <atomic>
-#include <chrono>
 #include <fcntl.h>
 #include <stdexcept>
 #include <string>
 #include <sys/mman.h>
 #include <sys/stat.h>
+#include <system_error>
 #include <unistd.h>
 #include <utility>
 
 namespace eph {
 
-// 共享内存头部，用于同步初始化状态
-struct ShmHeader {
-  alignas(config::CACHE_LINE_SIZE) std::atomic<bool> initialized{false};
-};
-
 template <typename T>
   requires ShmLayout<T>
 class SharedMemory {
 public:
-  // 数据布局：Header + Data
-  // 使用 byte array 避免 T 被意外构造，我们手动控制生命周期
-  struct Layout {
-    ShmHeader header;
-
-    static constexpr size_t DataAlign = (alignof(T) > config::CACHE_LINE_SIZE)
-                                            ? alignof(T)
-                                            : config::CACHE_LINE_SIZE;
-
-    alignas(DataAlign) T data;
-  };
-
-  SharedMemory(std::string name, bool create)
-      : name_(std::move(name)), is_owner_(create) {
-    open_and_map(create);
+  SharedMemory(std::string name, bool is_owner)
+      : name_(std::move(name)), is_owner_(is_owner) {
+    try {
+      open_and_map();
+    } catch (...) {
+      cleanup();
+      throw;
+    }
   }
 
   ~SharedMemory() { cleanup(); }
@@ -67,36 +54,67 @@ public:
     return *this;
   }
 
-  T *get() noexcept { return &layout_->data; }
-  const T *get() const noexcept { return &layout_->data; }
+  [[nodiscard]] T *get() noexcept { return &layout_->data; }
+  [[nodiscard]] const T *get() const noexcept { return &layout_->data; }
+  [[nodiscard]] const std::string &name() const noexcept { return name_; }
 
   T *operator->() noexcept { return get(); }
   const T *operator->() const noexcept { return get(); }
 
-  const std::string &name() const noexcept { return name_; }
-
 private:
+  struct Layout {
+    alignas(config::CACHE_LINE_SIZE) std::atomic<bool> initialized{false};
+
+    alignas(alignof(T) > config::CACHE_LINE_SIZE
+                ? alignof(T)
+                : config::CACHE_LINE_SIZE) T data;
+  };
+
   std::string name_;
   int fd_ = -1;
+  size_t size_ = 0;
   Layout *layout_ = nullptr;
   bool is_owner_ = false;
 
-  void open_and_map(bool create) {
-    int flags = O_RDWR;
-    if (create)
-      flags |= O_CREAT;
+  void open_and_map() {
+    if (!is_owner_ && !layout_->initialized.load(std::memory_order_acquire)) {
 
-    // 1. Open
-    fd_ = shm_open(name_.c_str(), flags, 0666);
-    if (fd_ == -1) {
-      throw std::runtime_error("shm_open failed: " + name_);
+      throw std::runtime_error("Shared memory not initialized: " + name_);
     }
 
-    // 2. Truncate (Owner only)
-    if (create) {
+    int flags = O_RDWR;
+
+    if (is_owner_) {
+      // 先清理可能残留的旧共享内存，避免"上次崩溃未清理"的风险，保证本次启动环境干净
+      shm_unlink(name_.c_str());
+
+      // O_EXCL 确保原子创建
+      flags |= O_CREAT | O_EXCL;
+    }
+
+    // 1. Open
+    fd_ = shm_open(name_.c_str(), flags, 0600);
+    if (fd_ == -1) {
+      throw std::system_error(errno, std::generic_category(),
+                              "shm_open failed: " + name_);
+    }
+
+    // 2. Truncate
+    if (is_owner_) {
       if (ftruncate(fd_, sizeof(Layout)) == -1) {
-        ::close(fd_);
-        throw std::runtime_error("ftruncate failed");
+        throw std::system_error(errno, std::generic_category(),
+                                "ftruncate failed");
+      }
+    } else {
+      // Consumer 检查大小，防止映射空文件会导致总线错误 (SIGBUS)。
+      // 例如，owner 执行 shm_open 后马上挂起了，Consumer 会成功
+      // mmap 但访问共享区域时会崩溃。
+      struct stat s;
+      if (fstat(fd_, &s) == -1) {
+        throw std::system_error(errno, std::generic_category(), "fstat failed");
+      }
+      if (static_cast<size_t>(s.st_size) < sizeof(Layout)) {
+        throw std::runtime_error("Shared memory size mismatch (too small)");
       }
     }
 
@@ -104,41 +122,25 @@ private:
     void *addr = mmap(nullptr, sizeof(Layout), PROT_READ | PROT_WRITE,
                       MAP_SHARED, fd_, 0);
     if (addr == MAP_FAILED) {
-      ::close(fd_);
-      throw std::runtime_error("mmap failed");
+      throw std::system_error(errno, std::generic_category(), "mmap failed");
     }
 
     layout_ = static_cast<Layout *>(addr);
 
     // 4. Initialization Handshake
-    if (create) {
-      // Owner: Construct object locally first, then set initialized flag
-      new (&layout_->data) T(); // Placement new
-
-      // Release 语义确保 T 的构造在 flag 变为 true 之前对其他核心可见
-      layout_->header.initialized.store(true, std::memory_order_release);
-    } else {
-      auto start = std::chrono::steady_clock::now();
-      while (!layout_->header.initialized.load(std::memory_order_acquire)) {
-        cpu_relax();
-        if (std::chrono::steady_clock::now() - start >
-            std::chrono::seconds(5)) {
-          cleanup();
-          throw std::runtime_error(
-              "Timeout waiting for shared memory initialization");
-        }
-      }
+    if (is_owner_) {
+      std::construct_at(&layout_->data);
+      layout_->initialized.store(true, std::memory_order_release);
     }
   }
 
   void cleanup() noexcept {
     if (layout_) {
-      // 只有 owner 负责析构对象，但在 SHM 中，如果进程崩溃，
-      // 对象可能不会被析构。对于 TriviallyCopyable 类型，通常不需要析构。
-      // 如果 T 有复杂的清理逻辑（不应该有，因为是
-      // TriviallyCopyable），这里需要注意。
       if (is_owner_) {
-        layout_->data.~T();
+        // 仅对非平凡析构类型调用析构函数
+        if constexpr (!std::is_trivially_destructible_v<T>) {
+          layout_->data.~T();
+        }
       }
       munmap(layout_, sizeof(Layout));
       layout_ = nullptr;
@@ -147,10 +149,12 @@ private:
       ::close(fd_);
       fd_ = -1;
     }
+
+    // Owner 负责 unlink，确保文件系统不残留
     if (is_owner_ && !name_.empty()) {
       shm_unlink(name_.c_str());
     }
   }
 };
 
-} 
+} // namespace eph
