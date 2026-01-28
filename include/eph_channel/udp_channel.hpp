@@ -96,6 +96,9 @@ public:
 
     // 设置内核接收缓冲区
     int rcvbuf = static_cast<int>(Capacity * sizeof(T));
+    if (rcvbuf < 262144) { // 至少 256KB
+      rcvbuf = 262144;
+    }
     socket_.set_opt(SOL_SOCKET, SO_RCVBUF, rcvbuf);
   }
 
@@ -175,4 +178,4 @@ public:
 private:
   Socket socket_;
 };
-} // namespace shm::udp
+} // namespace eph::udp

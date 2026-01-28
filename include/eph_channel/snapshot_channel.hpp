@@ -14,18 +14,13 @@ namespace eph::snapshot {
  * 本模块提供基于 SeqLock 的"发布-订阅"语义通道，区别于 eph::ipc 的队列通道。
  *
  * **核心语义差异：**
- * - **Queue (IPC/ITC):** 消息流。Send/Receive 是破坏性的（入队/出队）。保证顺序，不丢数据。
- * - **Snapshot (此处):** 状态流。Publish 是覆盖性的（Update），Fetch 是非破坏性的（Observe）。
- * 不保证顺序，只保证"最终一致性"和"实时性"。
- *
- * **适用场景：**
- * - 市场行情快照 (Ticker, BBO)
- * - 系统配置热更新
- * - 传感器最新读数
+ * - **Queue (IPC/ITC):** 消息流。Send/Receive
+ * 是破坏性的（入队/出队）。保证顺序，不丢数据。
+ * - **Snapshot (此处):** 状态流。Publish 是覆盖性的（Update），Fetch
+ * 是非破坏性的（Observe）。 不保证顺序，只保证"最终一致性"和"实时性"。
  */
 
-template <typename T, typename Backend>
-class Publisher {
+template <typename T, typename Backend> class Publisher {
 public:
   explicit Publisher(Backend backend) : backend_(std::move(backend)) {}
 
@@ -33,7 +28,9 @@ public:
   void publish(const T &data) { backend_->store(data); }
 
   // 零拷贝写入
-  template <typename F> void publish(F &&writer) {
+  template <typename F>
+    requires std::is_invocable_v<F, T &>
+  void publish(F &&writer) {
     backend_->write(std::forward<F>(writer));
   }
 
@@ -41,20 +38,23 @@ private:
   Backend backend_;
 };
 
-template <typename T, typename Backend>
-class Subscriber {
+template <typename T, typename Backend> class Subscriber {
 public:
   explicit Subscriber(Backend backend) : backend_(std::move(backend)) {}
 
   // 读取最新数据 (自旋直到一致)
   T fetch() { return backend_->load(); }
-  void fetch(T &out) { backend_->read([&out](const T& d){ out = d; }); }
+  void fetch(T &out) {
+    backend_->read([&out](const T &d) { out = d; });
+  }
 
   // 尝试读取 (如果正在写则失败)
   bool try_fetch(T &out) { return backend_->try_load(out); }
 
   // 访问器读取 (零拷贝)
-  template <typename F> void fetch(F &&visitor) {
+  template <typename F>
+    requires std::is_invocable_v<F, const T &>
+  void fetch(F &&visitor) {
     backend_->read(std::forward<F>(visitor));
   }
 
@@ -81,8 +81,7 @@ private:
 
 namespace itc {
 
-template <typename T>
-using ItcBackend = std::shared_ptr<SeqLock<T>>;
+template <typename T> using ItcBackend = std::shared_ptr<SeqLock<T>>;
 
 template <typename T>
 using Publisher = eph::snapshot::Publisher<T, ItcBackend<T>>;
@@ -90,10 +89,9 @@ using Publisher = eph::snapshot::Publisher<T, ItcBackend<T>>;
 template <typename T>
 using Subscriber = eph::snapshot::Subscriber<T, ItcBackend<T>>;
 
-template <typename T>
-auto channel() {
+template <typename T> auto channel() {
   ItcBackend<T> buffer;
-  
+
   buffer = std::make_shared<SeqLock<T>>();
 
   return std::make_pair(Publisher<T>(buffer), Subscriber<T>(buffer));
@@ -107,8 +105,7 @@ auto channel() {
 
 namespace ipc {
 
-template <typename T>
-using IpcBackend = SharedMemory<SeqLock<T>>;
+template <typename T> using IpcBackend = SharedMemory<SeqLock<T>>;
 
 template <typename T>
 using Publisher = eph::snapshot::Publisher<T, IpcBackend<T>>;
@@ -116,8 +113,7 @@ using Publisher = eph::snapshot::Publisher<T, IpcBackend<T>>;
 template <typename T>
 using Subscriber = eph::snapshot::Subscriber<T, IpcBackend<T>>;
 
-template <typename T>
-auto channel(const std::string &name) {
+template <typename T> auto channel(const std::string &name) {
   // Owner 创建
   IpcBackend<T> sender_shm(name, true, false);
   // User (Consumer) 打开

@@ -26,13 +26,14 @@ void run_producer(Tx tx, Rx rx, const std::string &report_name) {
 
   // Handshake / Warmup
   MarketData dummy{};
-  tx.send(dummy);     // 发送
+  tx.send(dummy);    // 发送
   rx.receive(dummy); // 假设 receive 是阻塞的
 
   std::cout << "[Producer] Warmup (" << BenchConfig::WARMUP_ITERATIONS
             << " iterations)..." << std::endl;
   MarketData msg{};
   for (int i = 0; i < BenchConfig::WARMUP_ITERATIONS; ++i) {
+    msg.sequence_id = i + 1;
     tx.send(msg);
     rx.receive(msg);
   }
@@ -45,7 +46,7 @@ void run_producer(Tx tx, Rx rx, const std::string &report_name) {
     msg.sequence_id = i + 1;
 
     uint64_t t0 = TSCClock::now();
-    
+
     tx.send(msg);
     rx.receive(ack); // 假设 receive 是阻塞的
 
@@ -73,8 +74,7 @@ void run_producer(Tx tx, Rx rx, const std::string &report_name) {
 // -----------------------------------------------------------------------------
 // Generic Consumer
 // -----------------------------------------------------------------------------
-template <typename Rx, typename Tx>
-void run_consumer(Rx rx, Tx tx) {
+template <typename Rx, typename Tx> void run_consumer(Rx rx, Tx tx) {
   System::bind_numa(BenchConfig::CONSUMER_NODE, BenchConfig::CONSUMER_CORE);
   System::set_realtime_priority();
 
@@ -86,9 +86,9 @@ void run_consumer(Rx rx, Tx tx) {
     rx.receive(req);
 
     if (req.sequence_id == BenchConfig::SEQ_TERMINATE) {
-        tx.send(req); // 回复终止确认
-        std::cout << "[Consumer] Termination received. Exiting." << std::endl;
-        break;
+      tx.send(req); // 回复终止确认
+      std::cout << "[Consumer] Termination received. Exiting." << std::endl;
+      break;
     }
 
     // 回显 (Echo)

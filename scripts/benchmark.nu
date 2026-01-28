@@ -1,27 +1,26 @@
 #!/usr/bin/env nu
 
-# --- 配置 ---
-const VALID_BENCHMARKS = [
-    "ping_pong_itc", 
-    "ping_pong_ipc", 
-    "ping_pong_iox", 
-    "ping_pong_udp"
-]
 
 # --- 主函数 ---
 def main [...targets: string] {
     # 1. 定义路径变量
     let base_dir = ($env.CURRENT_FILE | path dirname | path dirname)
+    let benchmark_dir = ($base_dir | path join "benchmark")
     let output_dir = ($base_dir | path join "outputs")
     let build_dir = ($base_dir | path join "build/linux/x86_64/release")
 
+    let benchmark_targets = (glob $"($benchmark_dir)/examples/*.cpp" | ls ...$in | get name | path parse | get stem)
+
+    print "\n📂 基准测试目录: $benchmark_dir"
+    print $benchmark_targets 
+
     # 2. 确定运行目标
     let run_list = if ($targets | is-empty) {
-        $VALID_BENCHMARKS
+        $benchmark_targets
     } else {
-        let invalid = ($targets | where { |t| $t not-in $VALID_BENCHMARKS })
+        let invalid = ($targets | where { |t| $t not-in $benchmark_targets })
         if not ($invalid | is-empty) {
-            error make { msg: $"❌ 错误: 未知的测试目标: ($invalid)\n可选目标: ($VALID_BENCHMARKS | str join ', ')" }
+            error make { msg: $"❌ 错误: 未知的测试目标: ($invalid)\n可选目标: ($benchmark_targets | str join ', ')" }
         }
         $targets
     }

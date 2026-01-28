@@ -20,7 +20,7 @@ namespace eph {
  */
 template <typename T>
   requires ShmData<T>
-class alignas(config::CACHE_LINE_SIZE) SeqLock {
+class alignas(alignof(T) > config::CACHE_LINE_SIZE ? alignof(T) : config::CACHE_LINE_SIZE) SeqLock {
   static_assert(std::atomic<uint64_t>::is_always_lock_free,
                 "SeqLock requires lock-free std::atomic<uint64_t>");
 

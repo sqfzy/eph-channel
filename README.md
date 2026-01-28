@@ -8,7 +8,7 @@ xmake run --group=examples
 
 # run tests
 ```
-xmake test
+xmake run --group=tests
 ```
 
 # run benchmarks

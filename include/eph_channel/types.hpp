@@ -5,21 +5,19 @@
 namespace eph {
 
 namespace config {
-#ifdef __cpp_lib_hardware_interference_size
-    constexpr std::size_t CACHE_LINE_SIZE = std::hardware_destructive_interference_size;
-#else
-    constexpr std::size_t CACHE_LINE_SIZE = 64;
-#endif
+constexpr std::size_t CACHE_LINE_SIZE = 64;
 constexpr size_t DEFAULT_CAPACITY = 1024;
 constexpr size_t HUGE_PAGE_SIZE = 2 * 1024 * 1024; // 2MB
-}
+} // namespace config
 
 /**
  * @brief [数据约束] 共享内存数据类型 Concept
  *
  * 存放在 RingBuffer 或 SeqLock 中的元素 T 必须满足：
- * 1. **TriviallyCopyable**: 保证可以用 `memcpy` 安全复制，不包含自定义拷贝逻辑。
- * 2. **无指针**: (隐含) 必须是 Self-contained 的数据，不能持有指向进程私有堆内存的指针。
+ * 1. **TriviallyCopyable**: 保证可以用 `memcpy`
+ * 安全复制，不包含自定义拷贝逻辑。
+ * 2. **无指针**: (隐含) 必须是 Self-contained
+ * 的数据，不能持有指向进程私有堆内存的指针。
  */
 template <typename T>
 concept ShmData =
@@ -29,7 +27,8 @@ concept ShmData =
  * @brief [容器约束] 共享内存容器布局 Concept
  *
  * 约束 RingBuffer/SeqLock 等容器结构：
- * 1. **Standard Layout**: 内存布局由标准严格定义，确保 C++ 编译器不会插入奇怪的 Padding，保证跨进程兼容性。
+ * 1. **Standard Layout**: 内存布局由标准严格定义，确保 C++ 编译器不会插入奇怪的
+ * Padding，保证跨进程兼容性。
  */
 template <typename T>
 concept ShmLayout =
@@ -40,4 +39,4 @@ concept ShmLayout =
 template <typename T>
 concept LockFreeAtomic = std::atomic<T>::is_always_lock_free;
 
-}
+} // namespace eph
