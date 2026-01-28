@@ -71,12 +71,26 @@ public:
     return *this;
   }
 
-  [[nodiscard]] T *get() noexcept { return &layout_->data; }
-  [[nodiscard]] const T *get() const noexcept { return &layout_->data; }
+  T *operator->() noexcept { return data(); }
+  const T *operator->() const noexcept { return data(); }
+  explicit operator bool() const noexcept { return layout_ != nullptr; }
+  bool operator==(std::nullptr_t) const noexcept { return layout_ == nullptr; }
+
+  [[nodiscard]] T *data() noexcept {
+    return layout_ ? &layout_->data : nullptr;
+  }
+  [[nodiscard]] const T *data() const noexcept {
+    return layout_ ? &layout_->data : nullptr;
+  }
   [[nodiscard]] const std::string &name() const noexcept { return name_; }
 
-  T *operator->() noexcept { return get(); }
-  const T *operator->() const noexcept { return get(); }
+  static SharedMemory<T> create(std::string name, bool use_huge_pages = false) {
+    return SharedMemory<T>(std::move(name), true, use_huge_pages);
+  }
+
+  static SharedMemory<T> open(std::string name, bool use_huge_pages = false) {
+    return SharedMemory<T>(std::move(name), false, use_huge_pages);
+  }
 
 private:
   struct Layout {

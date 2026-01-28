@@ -16,6 +16,12 @@ public:
   explicit Sender(std::shared_ptr<RingBuffer<T, Capacity>> buffer)
       : buffer_(std::move(buffer)) {}
 
+  Sender(const Sender &) = delete;
+  Sender &operator=(const Sender &) = delete;
+
+  Sender(Sender &&) noexcept = default;
+  Sender &operator=(Sender &&) noexcept = default;
+
   // --- 基础接口 ---
   void send(const T &data) { buffer_->push(data); }
   [[nodiscard]] bool try_send(const T &data) { return buffer_->try_push(data); }
@@ -70,6 +76,12 @@ class Receiver {
 public:
   explicit Receiver(std::shared_ptr<RingBuffer<T, Capacity>> buffer)
       : buffer_(std::move(buffer)) {}
+
+  Receiver(const Receiver &) = delete;
+  Receiver &operator=(const Receiver &) = delete;
+
+  Receiver(Receiver &&) noexcept = default;
+  Receiver &operator=(Receiver &&) noexcept = default;
 
   // --- 基础接口 ---
   T receive() { return buffer_->pop(); }

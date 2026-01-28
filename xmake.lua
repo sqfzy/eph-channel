@@ -69,7 +69,7 @@ end
 -----------------------------------------------------------------------------
 -- Tests
 -----------------------------------------------------------------------------
-for _, file in ipairs(os.files("tests/*.cpp")) do
+for _, file in ipairs(os.files("tests/**/*.cpp")) do
     local name = path.basename(file)
     target("test_" .. name)
     set_kind("binary")

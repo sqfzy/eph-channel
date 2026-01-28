@@ -88,7 +88,8 @@ class Receiver {
 public:
   /**
    * @param name 共享内存名称
-   * @param use_huge_pages 是否使用大页 (2MB/1GB)。Receiver 必须与 Sender 的大页配置一致
+   * @param use_huge_pages 是否使用大页 (2MB/1GB)。Receiver 必须与 Sender
+   * 的大页配置一致
    */
   explicit Receiver(std::string name, bool use_huge_pages = false)
       : shm_(std::move(name), false, use_huge_pages) {}
