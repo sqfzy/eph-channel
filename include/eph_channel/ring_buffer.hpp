@@ -8,7 +8,25 @@
 
 namespace eph {
 
-// SPSC: Single Producer Single Consumer Lock-Free RingBuffer
+/**
+ * @brief 单生产者-单消费者 (SPSC) 无锁环形缓冲区
+ *
+ * @details
+ * **核心机制：**
+ * 使用 Head 和 Tail 两个索引控制读写，无需互斥锁 (Mutex)。
+ * - Producer 只修改 Tail。
+ * - Consumer 只修改 Head。
+ *
+ * **内存布局与伪共享 (False Sharing) 防护：**
+ * 为了防止多核 CPU 下的缓存行颠簸 (Cache Thrashing)，Head 和 Tail 被强制隔离在不同的缓存行。
+ *
+ * [ head_ (8B) ... padding ... ] <--- Cache Line A (Consumer 独占写)
+ * [ tail_ (8B) ... padding ... ] <--- Cache Line B (Producer 独占写)
+ * [ buffer_ ...                ] <--- Cache Line C...
+ *
+ * @tparam T 数据类型，必须是 TriviallyCopyable (POD)。
+ * @tparam Capacity 容量，必须是 2 的幂 (Power of 2)，以便使用位运算替代取模。
+ */
 template <typename T, size_t Capacity = config::DEFAULT_CAPACITY>
   requires ShmData<T>
 class RingBuffer {

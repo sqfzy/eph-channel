@@ -1,7 +1,9 @@
 #pragma once
 
+#include "eph_channel/shared_memory.hpp"
 #include "ring_buffer.hpp"
 #include <chrono>
+#include <cstdlib>
 #include <memory>
 #include <optional>
 
@@ -120,11 +122,52 @@ private:
   std::shared_ptr<RingBuffer<T, Capacity>> buffer_;
 };
 
+template <typename T, size_t Capacity>
+std::shared_ptr<RingBuffer<T, Capacity>> make_huge_ring_buffer() {
+  using RB = RingBuffer<T, Capacity>;
+
+  // 1. 计算对齐后的大小
+  size_t raw_size = sizeof(RB);
+  size_t map_size = align_up<HUGE_PAGE_SIZE>(raw_size);
+
+  // 2. 匿名映射 (MAP_ANONYMOUS)，不需要文件描述符，只存在于内存中
+  void *ptr = mmap(nullptr, map_size, PROT_READ | PROT_WRITE,
+                   MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB, -1, 0);
+
+  if (ptr == MAP_FAILED) {
+    // 如果申请失败 (通常是因为没预留大页)，回退到普通 new 或者抛异常
+    // 这里选择抛出异常，让用户意识到配置不对
+    throw std::system_error(
+        errno, std::generic_category(),
+        "mmap failed for huge pages (ITC). Check /proc/sys/vm/nr_hugepages");
+  }
+
+  // 3. 在这块内存上构造 RingBuffer
+  RB *rb_ptr = static_cast<RB *>(ptr);
+  std::construct_at(rb_ptr);
+
+  // 4. 创建 shared_ptr，并挂载自定义删除器
+  //    当引用计数归零时，Lambda 会被调用
+  return std::shared_ptr<RB>(rb_ptr, [map_size](RB *p) {
+    // a. 调用析构函数
+    p->~RB();
+    // b. 释放大页内存
+    munmap(p, map_size);
+  });
+}
+
 template <typename T, size_t Capacity = config::DEFAULT_CAPACITY>
-auto channel() {
-  auto buffer = std::make_shared<RingBuffer<T, Capacity>>();
+auto channel(bool use_huge_pages = false) {
+  std::shared_ptr<RingBuffer<T, Capacity>> buffer;
+
+  if (use_huge_pages) {
+    buffer = make_huge_ring_buffer<T, Capacity>();
+  } else {
+    buffer = std::make_shared<RingBuffer<T, Capacity>>();
+  }
+
   return std::make_pair(Sender<T, Capacity>(buffer),
                         Receiver<T, Capacity>(buffer));
 }
 
-}
+} // namespace eph::itc

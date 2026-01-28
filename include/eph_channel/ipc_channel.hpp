@@ -8,11 +8,24 @@
 
 namespace eph::ipc {
 
+/**
+ * @brief IPC 消息发送端 (SPSC Queue Writer)
+ *
+ * @details
+ * 基于 RingBuffer 的队列语义封装。
+ * - **不可丢弃**: 不同于
+ * Snapshot，这里的每个包都承载独立信息（如订单流），原则上不应覆盖。
+ */
 template <typename T, size_t Capacity = config::DEFAULT_CAPACITY>
   requires ShmData<T>
 class Sender {
 public:
-  explicit Sender(std::string name) : shm_(std::move(name), true) {}
+  /**
+   * @param name 共享内存名称
+   * @param use_huge_pages 是否使用大页 (2MB/1GB)
+   */
+  explicit Sender(std::string name, bool use_huge_pages = false)
+      : shm_(std::move(name), true, use_huge_pages) {}
 
   // --- 基础接口 ---
   void send(const T &data) { shm_->push(data); }
@@ -66,11 +79,19 @@ private:
   SharedMemory<RingBuffer<T, Capacity>> shm_;
 };
 
+/**
+ * @brief IPC 消息接收端 (SPSC Queue Reader)
+ */
 template <typename T, size_t Capacity = config::DEFAULT_CAPACITY>
   requires ShmData<T>
 class Receiver {
 public:
-  explicit Receiver(std::string name) : shm_(std::move(name), false) {}
+  /**
+   * @param name 共享内存名称
+   * @param use_huge_pages 是否使用大页 (2MB/1GB)。Receiver 必须与 Sender 的大页配置一致
+   */
+  explicit Receiver(std::string name, bool use_huge_pages = false)
+      : shm_(std::move(name), false, use_huge_pages) {}
 
   // --- 基础接口 ---
   T receive() { return shm_->pop(); }
@@ -127,9 +148,10 @@ private:
 };
 
 template <typename T, size_t Capacity = config::DEFAULT_CAPACITY>
-auto channel(const std::string &name) {
-  Sender<T, Capacity> sender(name);
-  Receiver<T, Capacity> receiver(name);
+auto channel(const std::string &name, bool use_huge_pages = false) {
+  Sender<T, Capacity> sender(name, use_huge_pages);
+  Receiver<T, Capacity> receiver(name, use_huge_pages);
+
   return std::make_pair(std::move(sender), std::move(receiver));
 }
 

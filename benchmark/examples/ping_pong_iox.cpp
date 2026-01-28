@@ -26,7 +26,7 @@ template <typename T> void wait_for_data(iox::popo::Subscriber<T> &sub) {
 // Producer（发送 Ping，接收 Pong）
 // -----------------------------------------------------------------------------
 void run_producer() {
-  System::pin_to_core(BenchConfig::PRODUCER_CORE);
+  System::bind_numa(BenchConfig::PRODUCER_NODE, BenchConfig::PRODUCER_CORE);
   System::set_realtime_priority();
 
   // 初始化 Iceoryx 运行时
@@ -142,7 +142,7 @@ void run_producer() {
 // Consumer（接收 Ping，发送 Pong）
 // -----------------------------------------------------------------------------
 void run_consumer() {
-  System::pin_to_core(BenchConfig::CONSUMER_CORE);
+  System::bind_numa(BenchConfig::CONSUMER_NODE, BenchConfig::CONSUMER_CORE);
   System::set_realtime_priority();
 
   // 初始化 Iceoryx 运行时

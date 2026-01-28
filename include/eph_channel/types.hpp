@@ -5,22 +5,32 @@
 namespace eph {
 
 namespace config {
-constexpr size_t CACHE_LINE_SIZE = 64;
+#ifdef __cpp_lib_hardware_interference_size
+    constexpr std::size_t CACHE_LINE_SIZE = std::hardware_destructive_interference_size;
+#else
+    constexpr std::size_t CACHE_LINE_SIZE = 64;
+#endif
 constexpr size_t DEFAULT_CAPACITY = 1024;
+constexpr size_t HUGE_PAGE_SIZE = 2 * 1024 * 1024; // 2MB
 }
 
-// [数据约束]
-// 约束 RingBuffer 中存放的元素 T：
-// 1. 必须是平凡可拷贝的 (memcpy 安全，无虚函数，无自定义拷贝逻辑)
-// 2. 必须是默认可构造的
+/**
+ * @brief [数据约束] 共享内存数据类型 Concept
+ *
+ * 存放在 RingBuffer 或 SeqLock 中的元素 T 必须满足：
+ * 1. **TriviallyCopyable**: 保证可以用 `memcpy` 安全复制，不包含自定义拷贝逻辑。
+ * 2. **无指针**: (隐含) 必须是 Self-contained 的数据，不能持有指向进程私有堆内存的指针。
+ */
 template <typename T>
 concept ShmData =
     std::is_trivially_copyable_v<T> && std::is_default_constructible_v<T>;
 
-// [容器约束]
-// 约束存放在 SharedMemory 中的容器对象 (如 RingBuffer)：
-// 1. 必须是标准布局 (内存布局可预测，这是跨进程共享的基础)
-// 2. 必须是默认可构造的 (SharedMemory 需要 inplace new)
+/**
+ * @brief [容器约束] 共享内存容器布局 Concept
+ *
+ * 约束 RingBuffer/SeqLock 等容器结构：
+ * 1. **Standard Layout**: 内存布局由标准严格定义，确保 C++ 编译器不会插入奇怪的 Padding，保证跨进程兼容性。
+ */
 template <typename T>
 concept ShmLayout =
     std::is_standard_layout_v<T> && std::is_default_constructible_v<T>;

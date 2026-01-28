@@ -15,7 +15,7 @@ using namespace benchmark;
 // -----------------------------------------------------------------------------
 template <typename Tx, typename Rx>
 void run_producer(Tx tx, Rx rx, const std::string &report_name) {
-  System::pin_to_core(BenchConfig::PRODUCER_CORE);
+  System::bind_numa(BenchConfig::PRODUCER_NODE, BenchConfig::PRODUCER_CORE);
   System::set_realtime_priority();
 
   TSCClock clock;
@@ -75,7 +75,7 @@ void run_producer(Tx tx, Rx rx, const std::string &report_name) {
 // -----------------------------------------------------------------------------
 template <typename Rx, typename Tx>
 void run_consumer(Rx rx, Tx tx) {
-  System::pin_to_core(BenchConfig::CONSUMER_CORE);
+  System::bind_numa(BenchConfig::CONSUMER_NODE, BenchConfig::CONSUMER_CORE);
   System::set_realtime_priority();
 
   std::cout << "[Consumer] Ready." << std::endl;

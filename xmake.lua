@@ -16,6 +16,7 @@ add_requires("benchmark")
 add_includedirs("/usr/include/iceoryx/v2.95.8")
 add_requires("iceoryx")
 add_requires("gtest")
+add_syslinks("numa")
 
 -----------------------------------------------------------------------------
 -- 核心库 (Header-only)
@@ -25,7 +26,6 @@ set_kind("headeronly")
 -- 导出接口：让所有 add_deps(xxx) 的目标自动获得这些配置
 add_includedirs("include", { public = true })
 add_headerfiles("include/(eph_channel/*.hpp)")
-
 
 -----------------------------------------------------------------------------
 -- Examples
@@ -81,3 +81,10 @@ for _, file in ipairs(os.files("tests/*.cpp")) do
     set_default(false)
     add_tests("default") -- 允许 xmake test 运行
 end
+
+target("numa_demo")
+set_kind("binary")
+add_files("include/eph_channel/numa_demo.cpp")
+
+-- 链接 libnuma
+add_syslinks("numa")
