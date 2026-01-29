@@ -1,14 +1,14 @@
 #include "benchmark/config.hpp"
-#include "benchmark/stats.hpp"
-#include "benchmark/system.hpp"
 #include "benchmark/timer.hpp"
-#include "eph_channel/platform.hpp"
+#include "benchmark/recorder.hpp" 
 
+#include <eph_channel/platform.hpp>
 #include <iceoryx_posh/popo/publisher.hpp>
 #include <iceoryx_posh/popo/subscriber.hpp>
 #include <iceoryx_posh/runtime/posh_runtime.hpp>
 
-#include <iostream>
+#include <print>
+#include <thread>
 
 using namespace benchmark;
 
@@ -26,20 +26,20 @@ template <typename T> void wait_for_data(iox::popo::Subscriber<T> &sub) {
 // Producer（发送 Ping，接收 Pong）
 // -----------------------------------------------------------------------------
 void run_producer() {
-  System::bind_numa(BenchConfig::PRODUCER_NODE, BenchConfig::PRODUCER_CORE);
-  System::set_realtime_priority();
+  eph::bind_numa(BenchConfig::PRODUCER_NODE, BenchConfig::PRODUCER_CORE);
+  eph::set_realtime_priority();
+  
+  // 初始化 TSC
+  TSC::get().init();
 
-  // 初始化 Iceoryx 运行时
   iox::runtime::PoshRuntime::initRuntime(BenchConfig::IOX_APP_NAME_PRODUCER);
 
-  // 创建 Publisher（发送 Ping）
   iox::popo::Publisher<MarketData> ping_pub(
       {BenchConfig::IOX_SERVICE, BenchConfig::IOX_INSTANCE,
        BenchConfig::IOX_EVENT_PING},
       iox::popo::PublisherOptions{.historyCapacity =
                                       BenchConfig::IOX_HISTORY_CAPACITY});
 
-  // 创建 Subscriber（接收 Pong）
   iox::popo::Subscriber<MarketData> pong_sub(
       {BenchConfig::IOX_SERVICE, BenchConfig::IOX_INSTANCE,
        BenchConfig::IOX_EVENT_PONG},
@@ -47,20 +47,15 @@ void run_producer() {
                                        BenchConfig::IOX_QUEUE_CAPACITY,
                                    .historyRequest = 0});
 
-  TSCClock clock;
-  StatsRecorder stats;
-  stats.reserve(BenchConfig::ITERATIONS);
+  Recorder stats("bench_ping_pong_iox");
 
-  // 等待订阅者连接
-  std::cout << "[Producer] Waiting for consumer..." << std::endl;
+  std::print("[Producer] Waiting for consumer...\n");
   while (!ping_pub.hasSubscribers()) {
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
   }
 
-  // 预热
-  std::cout << "[Producer] Warmup (" << BenchConfig::WARMUP_ITERATIONS
-            << " iterations)..." << std::endl;
-  for (int i = 0; i < BenchConfig::WARMUP_ITERATIONS; ++i) {
+  std::print("[Producer] Warmup ({} iterations)...\n", BenchConfig::WARMUP_ITERATIONS);
+    for (int i = 0; i < BenchConfig::WARMUP_ITERATIONS; ++i) {
     ping_pub.loan()
         .and_then([&](auto &sample) {
           sample->sequence_id = 0;
@@ -68,23 +63,18 @@ void run_producer() {
           sample.publish();
         })
         .or_else([](auto &error) {
-          std::cerr << "Warmup loan failed: " << error << std::endl;
+           std::print(stderr, "Warmup loan failed: {}\n", (int)error);
         });
 
     wait_for_data(pong_sub);
-    pong_sub.take().and_then([](const auto &) {
-      // 丢弃预热数据
-    });
+    pong_sub.take().and_then([](const auto &) {});
   }
 
-  // 正式测试
-  std::cout << "[Producer] Running benchmark (" << BenchConfig::ITERATIONS
-            << " iterations)..." << std::endl;
+  std::print("[Producer] Running benchmark ({} iterations)...\n", BenchConfig::ITERATIONS);
 
   for (int i = 0; i < BenchConfig::ITERATIONS; ++i) {
-    uint64_t t0 = TSCClock::now();
+    uint64_t t0 = TSC::get().now();
 
-    // 发送 Ping
     ping_pub.loan()
         .and_then([&](auto &sample) {
           sample->sequence_id = i + 1;
@@ -92,58 +82,54 @@ void run_producer() {
           sample.publish();
         })
         .or_else([](auto &error) {
-          std::cerr << "Loan failed: " << error << std::endl;
+          std::print(stderr, "Loan failed: {}\n", (int)error);
           exit(1);
         });
 
-    // 等待并接收 Pong
     wait_for_data(pong_sub);
 
     pong_sub.take()
         .and_then([&](const auto &sample) {
-          uint64_t t1 = TSCClock::now();
+          uint64_t t1 = TSC::get().now();
 
-          // 验证序列号
           if (sample->sequence_id != static_cast<uint64_t>(i + 1)) {
-            std::cerr << "Sequence mismatch! Expected " << (i + 1) << ", got "
-                      << sample->sequence_id << std::endl;
+            std::print(stderr, "Sequence mismatch! Expected {}, got {}\n", i + 1, sample->sequence_id);
             exit(1);
           }
 
-          // 记录单向延迟（RTT / 2）
-          stats.add(i, clock.to_ns(t1 - t0) / 2.0);
+          double latency_cycles = static_cast<double>(t1 - t0) / 2.0;
+          stats.record(latency_cycles);
         })
         .or_else([](auto &error) {
-          std::cerr << "Take failed: " << error << std::endl;
+          std::print(stderr, "Take failed: {}\n", (int)error);
           exit(1);
         });
   }
 
-  // 发送终止信号
-  std::cout << "[Producer] Sending termination signal..." << std::endl;
+  std::print("[Producer] Sending termination signal...\n");
   ping_pub.loan().and_then([&](auto &sample) {
     sample->sequence_id = BenchConfig::SEQ_TERMINATE;
     sample.publish();
   });
 
-  // 等待确认
   wait_for_data(pong_sub);
   pong_sub.take().and_then([](const auto &sample) {
     if (sample->sequence_id == BenchConfig::SEQ_TERMINATE) {
-      std::cout << "[Producer] Consumer acknowledged termination." << std::endl;
+      std::print("[Producer] Consumer acknowledged termination.\n");
     }
   });
 
-  // 输出统计报告
-  stats.report("bench_ping_pong_iox_latency");
+  stats.print_report();
+  stats.export_samples_to_csv();
+  stats.export_json();
 }
 
 // -----------------------------------------------------------------------------
 // Consumer（接收 Ping，发送 Pong）
 // -----------------------------------------------------------------------------
 void run_consumer() {
-  System::bind_numa(BenchConfig::CONSUMER_NODE, BenchConfig::CONSUMER_CORE);
-  System::set_realtime_priority();
+  eph::bind_numa(BenchConfig::CONSUMER_NODE, BenchConfig::CONSUMER_CORE);
+  eph::set_realtime_priority();
 
   // 初始化 Iceoryx 运行时
   iox::runtime::PoshRuntime::initRuntime(BenchConfig::IOX_APP_NAME_CONSUMER);

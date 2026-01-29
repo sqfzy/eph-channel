@@ -2,6 +2,7 @@
 #include "eph_channel/channel.hpp"
 #include "ping_pong_common.hpp"
 #include <limits>
+#include <print>
 
 using namespace eph;
 
@@ -49,8 +50,7 @@ template <typename T> struct SnapshotRxAdapter {
 // =============================================================================
 
 int main() {
-  std::cout << "Starting Process (Snapshot) Ping-Pong Benchmark..."
-            << std::endl;
+  std::println("Starting Process (Snapshot) Ping-Pong Benchmark...");
 
   bool use_huge_page = true;
   std::string p2c_name = std::string(BenchConfig::SHM_NAME) + "_snap_p2c";
@@ -62,7 +62,7 @@ int main() {
 
   pid_t pid = fork();
   if (pid < 0) {
-    std::cerr << "Fork failed!" << std::endl;
+    std::println(stderr, "Fork failed!");
     return 1;
   }
 
@@ -78,6 +78,6 @@ int main() {
     SnapshotRxAdapter<MarketData> rx(std::move(c2p_sub));
 
     run_producer(std::move(tx), std::move(rx),
-                 "bench_ping_pong_snapshot_latency");
+                 "bench_ping_pong_snapshot");
   }
 }

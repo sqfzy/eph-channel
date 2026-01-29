@@ -35,7 +35,7 @@ int main() {
     run_consumer(std::move(p2c_rx), std::move(c2p_tx));
   } else {
     run_producer(std::move(p2c_tx), std::move(c2p_rx),
-                 "bench_ping_pong_ipc_latency");
+                 "bench_ping_pong_ipc");
   }
 
   return 0;

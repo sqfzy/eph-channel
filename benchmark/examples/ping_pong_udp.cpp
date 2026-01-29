@@ -36,7 +36,7 @@ int main() {
   } else {
     // Parent: Producer
     run_producer(std::move(p2c_tx), std::move(c2p_rx),
-                 "bench_ping_pong_udp_latency");
+                 "bench_ping_pong_udp");
   }
 
   return 0;

@@ -1,8 +1,8 @@
 #pragma once
 
 #include "benchmark/config.hpp"
-#include "benchmark/stats.hpp"
-#include "benchmark/timer.hpp"
+#include "benchmark/timer.hpp" 
+#include "benchmark/recorder.hpp"
 #include <eph_channel/platform.hpp>
 
 #include <print>
@@ -28,16 +28,17 @@ void run_producer(Tx tx, Rx rx, const std::string &report_name) {
     std::print(stderr, "[Producer] RT priority failed: {}\n", e.what());
   }
 
-  TSCClock clock;
-  StatsRecorder stats;
-  stats.reserve(BenchConfig::ITERATIONS);
+  // 初始化 TSC 计时器
+  TSC::get().init();
+
+  Recorder stats(report_name);
 
   std::print("[Producer] Waiting for consumer...\n");
 
   // Handshake / Warmup
   MarketData dummy{};
-  tx.send(dummy);    // 发送
-  rx.receive(dummy); // 假设 receive 是阻塞 of
+  tx.send(dummy);    
+  rx.receive(dummy); 
 
   std::print("[Producer] Warmup ({} iterations)...\n", BenchConfig::WARMUP_ITERATIONS);
   MarketData msg{};
@@ -49,18 +50,21 @@ void run_producer(Tx tx, Rx rx, const std::string &report_name) {
 
   std::print("[Producer] Running benchmark ({} iterations)...\n", BenchConfig::ITERATIONS);
 
-  MarketData ack; // 用于接收响应
+  MarketData ack; 
   for (int i = 0; i < BenchConfig::ITERATIONS; ++i) {
     msg.sequence_id = i + 1;
 
-    uint64_t t0 = TSCClock::now();
+    uint64_t t0 = TSC::get().now();
 
     tx.send(msg);
-    rx.receive(ack); // 假设 receive 是阻塞的
+    rx.receive(ack); 
 
-    uint64_t t1 = TSCClock::now();
+    uint64_t t1 = TSC::get().now();
 
-    stats.add(i, clock.to_ns(t1 - t0) / 2.0);
+    // 计算 RTT/2 的 cycles
+    double latency_cycles = static_cast<double>(t1 - t0) / 2.0;
+    
+    stats.record(latency_cycles);
 
     if (ack.sequence_id != msg.sequence_id) {
       std::print(stderr, "Mismatch! Sent: {} Recv: {}\n", msg.sequence_id, ack.sequence_id);
@@ -71,11 +75,14 @@ void run_producer(Tx tx, Rx rx, const std::string &report_name) {
   // 发送终止信号
   msg.sequence_id = BenchConfig::SEQ_TERMINATE;
   tx.send(msg);
-  rx.receive(ack); // 等待确认
+  rx.receive(ack);
 
   std::print("[Producer] Consumer acknowledged termination.\n");
 
-  stats.report(report_name);
+  // 输出报告
+  stats.print_report();
+  stats.export_samples_to_csv();
+  stats.export_json();
 }
 
 // -----------------------------------------------------------------------------

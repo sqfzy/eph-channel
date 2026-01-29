@@ -30,7 +30,7 @@ int main() {
 
   // 3. 在主线程运行生产者
   // 生产者持有 p2c 的发送端 和 c2p 的接收端
-  run_producer(std::move(p2c_tx), std::move(c2p_rx), "bench_ping_pong_itc_latency");
+  run_producer(std::move(p2c_tx), std::move(c2p_rx), "bench_ping_pong_itc");
 
   // 4. 等待消费者线程结束
   consumer_thread.join();

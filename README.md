@@ -12,7 +12,10 @@ xmake run --group=tests
 ```
 
 # run benchmarks
-请先查看，`benchmarks/include/benchmark/config.hpp` 中定义的配置，并根据需要进行修改。
+请先查看 `benchmarks/include/benchmark/config.hpp` 中定义的配置，并根据需要进行修改。
 ```
-nu "./scripts/bench_all.nu"
+# bench one
+python scripts/benchmark.py ping_pong_itc
+# bench all
+python scripts/benchmark.py
 ```
