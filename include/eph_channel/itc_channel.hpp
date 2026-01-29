@@ -147,8 +147,6 @@ std::shared_ptr<RingBuffer<T, Capacity>> make_huge_ring_buffer() {
                    MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB, -1, 0);
 
   if (ptr == MAP_FAILED) {
-    // 如果申请失败 (通常是因为没预留大页)，回退到普通 new 或者抛异常
-    // 这里选择抛出异常，让用户意识到配置不对
     throw std::system_error(
         errno, std::generic_category(),
         "mmap failed for huge pages (ITC). Check /proc/sys/vm/nr_hugepages");
