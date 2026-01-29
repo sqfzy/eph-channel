@@ -2,8 +2,6 @@
 #include <chrono>
 #include <iostream>
 #include <numa.h>
-#include <thread>
-#include <vector>
 
 // 简单的 RAII 包装器，用于管理 NUMA 内存
 struct NumaMemory {

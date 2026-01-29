@@ -12,6 +12,7 @@ xmake run --group=tests
 ```
 
 # run benchmarks
+请先查看，`benchmarks/include/benchmark/config.hpp` 中定义的配置，并根据需要进行修改。
 ```
 nu "./scripts/bench_all.nu"
 ```

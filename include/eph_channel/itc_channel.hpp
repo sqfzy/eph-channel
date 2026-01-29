@@ -1,11 +1,11 @@
 #pragma once
 
-#include "eph_channel/shared_memory.hpp"
 #include "ring_buffer.hpp"
 #include <chrono>
 #include <cstdlib>
 #include <memory>
 #include <optional>
+#include <sys/mman.h>
 
 namespace eph::itc {
 
@@ -140,7 +140,7 @@ std::shared_ptr<RingBuffer<T, Capacity>> make_huge_ring_buffer() {
 
   // 1. 计算对齐后的大小
   size_t raw_size = sizeof(RB);
-  size_t map_size = align_up<HUGE_PAGE_SIZE>(raw_size);
+  size_t map_size = align_up<config::HUGE_PAGE_SIZE>(raw_size);
 
   // 2. 匿名映射 (MAP_ANONYMOUS)，不需要文件描述符，只存在于内存中
   void *ptr = mmap(nullptr, map_size, PROT_READ | PROT_WRITE,

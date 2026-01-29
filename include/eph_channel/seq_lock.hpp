@@ -28,10 +28,8 @@ class alignas(alignof(T) > config::CACHE_LINE_SIZE ? alignof(T)
 
 private:
   // 版本号：偶数=空闲，奇数=正在写入
-  // alignas 确保 seq_ 独占缓存行，避免 False Sharing
   alignas(config::CACHE_LINE_SIZE) std::atomic<uint64_t> seq_{0};
 
-  // 数据区对齐，确保 data_ 不会和 seq_ 在同一个缓存行
   alignas(alignof(T) > config::CACHE_LINE_SIZE
               ? alignof(T)
               : config::CACHE_LINE_SIZE) T data_;

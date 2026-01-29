@@ -84,7 +84,6 @@ end
 
 target("numa_demo")
 set_kind("binary")
-add_files("include/eph_channel/numa_demo.cpp")
-
+add_files("examples/numa_demo.cpp")
 -- 链接 libnuma
 add_syslinks("numa")

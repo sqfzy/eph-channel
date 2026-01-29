@@ -39,4 +39,10 @@ concept ShmLayout =
 template <typename T>
 concept LockFreeAtomic = std::atomic<T>::is_always_lock_free;
 
+template <size_t Alignment> inline size_t align_up(size_t size) {
+  static_assert(Alignment > 0 && (Alignment & (Alignment - 1)) == 0,
+                "Alignment must be a power of 2");
+  return (size + Alignment - 1) & ~(Alignment - 1);
+}
+
 } // namespace eph
