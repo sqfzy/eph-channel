@@ -208,15 +208,14 @@ public:
   // 状态查询
   // ---------------------------------------------------------------------------
   
-  // 注意：size() 仅用于监控，不应用于核心逻辑，因为它读取了两个 atomic
-  size_t size() const noexcept {
+  size_t may_size() const noexcept {
     auto tail = producer_.tail_.load(std::memory_order_relaxed);
     auto head = consumer_.head_.load(std::memory_order_relaxed);
     return tail - head;
   }
 
-  bool empty() const noexcept { return size() == 0; }
-  bool full() const noexcept { return size() >= Capacity; }
+  bool may_empty() const noexcept { return may_size() == 0; }
+  bool may_full() const noexcept { return may_size() >= Capacity; }
   static constexpr size_t capacity() noexcept { return Capacity; }
 };
 
