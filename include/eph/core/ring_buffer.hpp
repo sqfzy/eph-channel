@@ -5,40 +5,54 @@
 #include <array>
 #include <atomic>
 #include <optional>
+#include <bit>
 
 namespace eph {
 
-
-static constexpr size_t DEFAULT_CAPACITY = 1024;
-
 /**
- * @brief 单生产者-单消费者 (SPSC) 无锁环形缓冲区
+ * @brief 单生产者-单消费者 (SPSC) 无锁环形缓冲区 (支持影子索引优化)
  *
  * @details
  * **核心机制：**
- * 使用 Head 和 Tail 两个索引控制读写，无需互斥锁 (Mutex)。
- * - Producer 只修改 Tail。
- * - Consumer 只修改 Head。
+ * 使用 Head 和 Tail 两个索引控制读写。
+ * 引入 **影子索引 (Shadow Indices)**：
+ * - Producer 缓存一份 `shadow_head_`，仅在缓冲区看似已满时更新。
+ * - Consumer 缓存一份 `shadow_tail_`，仅在缓冲区看似为空时更新。
  *
  * **内存布局与伪共享 (False Sharing) 防护：**
- * 为了防止多核 CPU 下的缓存行颠簸 (Cache Thrashing)，Head 和 Tail 被强制隔离在不同的缓存行。
+ * 严格按照“写入者”归类，将变量隔离在不同的缓存行 (Cache Line)。
  *
- * [ head_ (8B) ... padding ... ] <--- Cache Line A (Consumer 独占写)
- * [ tail_ (8B) ... padding ... ] <--- Cache Line B (Producer 独占写)
- * [ buffer_ ...                ] <--- Cache Line C...
+ * [ head_ (8B) | shadow_tail_ (8B) ... padding ... ] <--- Consumer Line (Consumer 写)
+ * [ tail_ (8B) | shadow_head_ (8B) ... padding ... ] <--- Producer Line (Producer 写)
+ * [ buffer_ ...                                    ] <--- Data Lines
  *
  * @tparam T 数据类型，必须是 TriviallyCopyable (POD)。
- * @tparam Capacity 容量，必须是 2 的幂 (Power of 2)，以便使用位运算替代取模。
+ * @tparam Capacity 容量，必须是 2 的幂。
  */
-template <typename T, size_t Capacity = DEFAULT_CAPACITY>
+template <typename T, size_t Capacity>
   requires ShmData<T>
 class RingBuffer {
   static_assert(std::has_single_bit(Capacity), "Capacity must be power of 2");
   static constexpr size_t mask_ = Capacity - 1;
 
-  // 使用 alignas 确保独立的缓存行，避免 False Sharing
-  alignas(detail::CACHE_LINE_SIZE) std::atomic<size_t> head_{0};
-  alignas(detail::CACHE_LINE_SIZE) std::atomic<size_t> tail_{0};
+  // ===========================================================================
+  // 缓存行隔离结构
+  // ===========================================================================
+
+  // 消费者缓存行：Consumer 频繁写入，Producer 偶尔读取 head_
+  struct alignas(detail::CACHE_LINE_SIZE) ConsumerLine {
+    std::atomic<size_t> head_{0};
+    size_t shadow_tail_{0}; // 消费者本地缓存的 tail，减少对 atomic tail_ 的读取
+  };
+
+  // 生产者缓存行：Producer 频繁写入，Consumer 偶尔读取 tail_
+  struct alignas(detail::CACHE_LINE_SIZE) ProducerLine {
+    std::atomic<size_t> tail_{0};
+    size_t shadow_head_{0}; // 生产者本地缓存的 head，减少对 atomic head_ 的读取
+  };
+
+  ConsumerLine consumer_;
+  ProducerLine producer_;
 
   // 数据区对齐
   static constexpr size_t BufferAlign = (alignof(T) > detail::CACHE_LINE_SIZE)
@@ -52,38 +66,64 @@ class RingBuffer {
   // ===========================================================================
 
   template <typename F> bool raw_produce(F &&writer) noexcept {
-    const size_t tail = tail_.load(std::memory_order_relaxed);
-    const size_t head = head_.load(std::memory_order_acquire);
+    const size_t tail = producer_.tail_.load(std::memory_order_relaxed);
+    
+    // 1. 快速路径：使用影子索引检查是否有空间
+    // shadow_head_ 是 head_ 的历史快照，一定 <= 实际 head_。
+    // 如果 tail - shadow_head_ < Capacity，说明实际空间肯定足够。
+    if (tail - producer_.shadow_head_ >= Capacity) {
+      
+      // 2. 慢速路径：影子索引认为满了，重新加载实际 head_ (Acquire)
+      // 这一步会产生跨核流量
+      const size_t head = consumer_.head_.load(std::memory_order_acquire);
+      producer_.shadow_head_ = head; // 更新影子
 
-    if (tail - head >= Capacity) {
-      return false; // Full
+      // 3. 再次检查真实状态
+      if (tail - head >= Capacity) {
+        return false; // Full
+      }
     }
 
     // 完美转发 writer，直接在 SHM 内存上操作
     std::forward<F>(writer)(buffer_[tail & mask_]);
 
-    tail_.store(tail + 1, std::memory_order_release);
+    producer_.tail_.store(tail + 1, std::memory_order_release);
     return true;
   }
 
   template <typename F> bool raw_consume(F &&visitor) noexcept {
-    const size_t head = head_.load(std::memory_order_relaxed);
-    const size_t tail = tail_.load(std::memory_order_acquire);
+    const size_t head = consumer_.head_.load(std::memory_order_relaxed);
 
-    if (head == tail) {
-      return false; // Empty
+    // 1. 快速路径：使用影子索引检查是否有数据
+    // shadow_tail_ 是 tail_ 的历史快照，一定 <= 实际 tail_。
+    // 如果 shadow_tail_ > head，说明实际 tail_ 肯定 > head (有数据)。
+    if (consumer_.shadow_tail_ == head) { // 等于意味着影子视角为空
+      
+      // 2. 慢速路径：影子索引认为空了，重新加载实际 tail_ (Acquire)
+      // 这一步会产生跨核流量
+      const size_t tail = producer_.tail_.load(std::memory_order_acquire);
+      consumer_.shadow_tail_ = tail; // 更新影子
+
+      // 3. 再次检查真实状态
+      if (head == tail) {
+        return false; // Empty
+      }
     }
 
     std::forward<F>(visitor)(buffer_[head & mask_]);
 
-    head_.store(head + 1, std::memory_order_release);
+    consumer_.head_.store(head + 1, std::memory_order_release);
     return true;
   }
 
 public:
   RingBuffer() noexcept {
-    head_.store(0, std::memory_order_relaxed);
-    tail_.store(0, std::memory_order_relaxed);
+    // 初始化 atomic 变量
+    consumer_.head_.store(0, std::memory_order_relaxed);
+    producer_.tail_.store(0, std::memory_order_relaxed);
+    // 影子变量初始化
+    consumer_.shadow_tail_ = 0;
+    producer_.shadow_head_ = 0;
   }
 
   // ===========================================================================
@@ -167,10 +207,11 @@ public:
   // ---------------------------------------------------------------------------
   // 状态查询
   // ---------------------------------------------------------------------------
-
+  
+  // 注意：size() 仅用于监控，不应用于核心逻辑，因为它读取了两个 atomic
   size_t size() const noexcept {
-    auto tail = tail_.load(std::memory_order_relaxed);
-    auto head = head_.load(std::memory_order_relaxed);
+    auto tail = producer_.tail_.load(std::memory_order_relaxed);
+    auto head = consumer_.head_.load(std::memory_order_relaxed);
     return tail - head;
   }
 
@@ -179,4 +220,4 @@ public:
   static constexpr size_t capacity() noexcept { return Capacity; }
 };
 
-} // namespace shm
+} // namespace eph

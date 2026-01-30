@@ -19,14 +19,16 @@ using namespace eph::benchmark;
 // -----------------------------------------------------------------------------
 struct BenchConfig {
   // 测试参数
-  static constexpr int ITERATIONS = 1000000;      // 测试迭代次数
+  static constexpr int ITERATIONS = 1'000'000'00;      // 测试迭代次数
   static constexpr int WARMUP_ITERATIONS = 10000; // 预热次数
 
   // NUMA 节点绑定
+  static constexpr int NORMAL_NODE = 0;
   static constexpr int PRODUCER_NODE = 0;
   static constexpr int CONSUMER_NODE = 0;
 
   // CPU 绑定
+  static constexpr int NORMAL_CORE = 2;
   static constexpr int PRODUCER_CORE = 2;
   static constexpr int CONSUMER_CORE = 4;
 

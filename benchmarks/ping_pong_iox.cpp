@@ -1,6 +1,6 @@
 #include "eph/benchmark/timer.hpp"
 #include "eph/benchmark/recorder.hpp" 
-#include "ping_pong_common.hpp"
+#include "common.hpp"
 
 #include <eph/platform.hpp>
 #include <iceoryx_posh/popo/publisher.hpp>

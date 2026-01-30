@@ -1,4 +1,4 @@
-#include "ping_pong_common.hpp"
+#include "common.hpp"
 #include "eph/channel.hpp"
 
 #include <iostream>

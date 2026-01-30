@@ -1,5 +1,5 @@
 #include "eph/channel.hpp"
-#include "ping_pong_common.hpp"
+#include "common.hpp"
 #include <limits>
 #include <print>
 
