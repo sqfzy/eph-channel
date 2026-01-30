@@ -208,14 +208,14 @@ public:
   // 状态查询
   // ---------------------------------------------------------------------------
   
-  size_t may_size() const noexcept {
+  size_t size() const noexcept {
     auto tail = producer_.tail_.load(std::memory_order_relaxed);
     auto head = consumer_.head_.load(std::memory_order_relaxed);
     return tail - head;
   }
 
-  bool may_empty() const noexcept { return may_size() == 0; }
-  bool may_full() const noexcept { return may_size() >= Capacity; }
+  bool empty() const noexcept { return size() == 0; }
+  bool full() const noexcept { return size() >= Capacity; }
   static constexpr size_t capacity() noexcept { return Capacity; }
 };
 
