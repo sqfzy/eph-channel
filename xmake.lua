@@ -12,12 +12,14 @@ end
 -----------------------------------------------------------------------------
 -- 依赖管理
 -----------------------------------------------------------------------------
+-- vcpkg 2.** 版本太低，需要最新版
 add_includedirs("/usr/include/iceoryx/v2.95.8")
-add_requires("benchmark", "gtest", "iceoryx")
+add_requires("gtest")
+add_requires("iceoryx")
 add_syslinks("numa")
 
 -----------------------------------------------------------------------------
--- 核心库 (Header-only)
+-- 核心库 (header-only)
 -----------------------------------------------------------------------------
 target("eph")
 set_kind("headeronly")
@@ -25,7 +27,7 @@ add_includedirs("include", { public = true })
 add_headerfiles("include/(eph/**/*.hpp)")
 
 -----------------------------------------------------------------------------
--- Examples
+-- examples
 -----------------------------------------------------------------------------
 for _, file in ipairs(os.files("examples/*.cpp")) do
     -- 从路径中提取文件名（不带后缀），例如 "examples/ipc_channel.cpp" -> "ipc_channel"
@@ -41,7 +43,7 @@ for _, file in ipairs(os.files("examples/*.cpp")) do
 end
 
 -----------------------------------------------------------------------------
--- Benchmarks
+-- benchmarks
 -----------------------------------------------------------------------------
 if is_mode("release") then
     for _, file in ipairs(os.files("benchmarks/*.cpp")) do
@@ -56,8 +58,6 @@ if is_mode("release") then
 
         if name:find("iox") then
             add_packages("iceoryx")
-        else
-            add_packages("benchmark")
         end
 
         add_syslinks("pthread")
@@ -65,7 +65,7 @@ if is_mode("release") then
 end
 
 -----------------------------------------------------------------------------
--- Tests
+-- tests
 -----------------------------------------------------------------------------
 for _, file in ipairs(os.files("tests/**/*.cpp")) do
     local name = path.basename(file)
