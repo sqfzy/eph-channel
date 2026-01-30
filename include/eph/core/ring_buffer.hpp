@@ -1,12 +1,15 @@
 #pragma once
 
-#include "platform.hpp"
-#include "types.hpp"
+#include "eph/platform.hpp"
+#include "eph/types.hpp"
 #include <array>
 #include <atomic>
 #include <optional>
 
 namespace eph {
+
+
+static constexpr size_t DEFAULT_CAPACITY = 1024;
 
 /**
  * @brief 单生产者-单消费者 (SPSC) 无锁环形缓冲区
@@ -27,20 +30,20 @@ namespace eph {
  * @tparam T 数据类型，必须是 TriviallyCopyable (POD)。
  * @tparam Capacity 容量，必须是 2 的幂 (Power of 2)，以便使用位运算替代取模。
  */
-template <typename T, size_t Capacity = config::DEFAULT_CAPACITY>
+template <typename T, size_t Capacity = DEFAULT_CAPACITY>
   requires ShmData<T>
 class RingBuffer {
   static_assert(std::has_single_bit(Capacity), "Capacity must be power of 2");
   static constexpr size_t mask_ = Capacity - 1;
 
   // 使用 alignas 确保独立的缓存行，避免 False Sharing
-  alignas(config::CACHE_LINE_SIZE) std::atomic<size_t> head_{0};
-  alignas(config::CACHE_LINE_SIZE) std::atomic<size_t> tail_{0};
+  alignas(detail::CACHE_LINE_SIZE) std::atomic<size_t> head_{0};
+  alignas(detail::CACHE_LINE_SIZE) std::atomic<size_t> tail_{0};
 
   // 数据区对齐
-  static constexpr size_t BufferAlign = (alignof(T) > config::CACHE_LINE_SIZE)
+  static constexpr size_t BufferAlign = (alignof(T) > detail::CACHE_LINE_SIZE)
                                             ? alignof(T)
-                                            : config::CACHE_LINE_SIZE;
+                                            : detail::CACHE_LINE_SIZE;
 
   alignas(BufferAlign) std::array<T, Capacity> buffer_;
 

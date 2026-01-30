@@ -1,6 +1,6 @@
 #pragma once
 
-#include "ring_buffer.hpp"
+#include "eph/core/ring_buffer.hpp"
 #include <chrono>
 #include <cstdlib>
 #include <memory>
@@ -9,7 +9,9 @@
 
 namespace eph::itc {
 
-template <typename T, size_t Capacity = config::DEFAULT_CAPACITY>
+static constexpr size_t DEFAULT_CAPACITY = 1024;
+
+template <typename T, size_t Capacity = DEFAULT_CAPACITY >
   requires ShmData<T>
 class Sender {
 public:
@@ -70,7 +72,7 @@ private:
   std::shared_ptr<RingBuffer<T, Capacity>> buffer_;
 };
 
-template <typename T, size_t Capacity = config::DEFAULT_CAPACITY>
+template <typename T, size_t Capacity = DEFAULT_CAPACITY >
   requires ShmData<T>
 class Receiver {
 public:
@@ -140,7 +142,7 @@ std::shared_ptr<RingBuffer<T, Capacity>> make_huge_ring_buffer() {
 
   // 1. 计算对齐后的大小
   size_t raw_size = sizeof(RB);
-  size_t map_size = align_up<config::HUGE_PAGE_SIZE>(raw_size);
+  size_t map_size = align_up<detail::HUGE_PAGE_SIZE>(raw_size);
 
   // 2. 匿名映射 (MAP_ANONYMOUS)，不需要文件描述符，只存在于内存中
   void *ptr = mmap(nullptr, map_size, PROT_READ | PROT_WRITE,
@@ -166,7 +168,7 @@ std::shared_ptr<RingBuffer<T, Capacity>> make_huge_ring_buffer() {
   });
 }
 
-template <typename T, size_t Capacity = config::DEFAULT_CAPACITY>
+template <typename T, size_t Capacity = DEFAULT_CAPACITY >
 auto channel(bool use_huge_pages = false) {
   std::shared_ptr<RingBuffer<T, Capacity>> buffer;
 

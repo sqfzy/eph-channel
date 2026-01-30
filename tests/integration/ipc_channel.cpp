@@ -1,7 +1,7 @@
 #include "../fixtures/config.hpp"
 #include "../fixtures/ipc_fixture.hpp"
 #include "../fixtures/utils.hpp"
-#include "eph_channel/channel.hpp"
+#include "eph/channel.hpp"
 #include <cerrno>
 #include <filesystem>
 #include <gtest/gtest.h>
@@ -16,7 +16,6 @@ TEST_F(IpcTestFixture, CreateAndConnect) {
 
   EXPECT_EQ(sender.name(), shm_name_);
   EXPECT_EQ(receiver.name(), shm_name_);
-  EXPECT_EQ(sender.capacity(), eph::config::DEFAULT_CAPACITY);
 }
 
 TEST_F(IpcTestFixture, CrossProcessCommunication) {

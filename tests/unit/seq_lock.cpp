@@ -1,4 +1,4 @@
-#include "eph_channel/seq_lock.hpp"
+#include "eph/core/seq_lock.hpp"
 #include "../fixtures/config.hpp"
 #include <gtest/gtest.h>
 #include <thread>

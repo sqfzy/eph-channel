@@ -1,10 +1,10 @@
-#include "benchmark/config.hpp"
-#include "eph_channel/channel.hpp"
+#include "eph/channel.hpp"
 #include "ping_pong_common.hpp"
 #include <limits>
 #include <print>
 
 using namespace eph;
+using namespace eph::benchmark;
 
 // =============================================================================
 // Adapters: 将 Snapshot 语义适配为 Queue 语义以复用测试逻辑

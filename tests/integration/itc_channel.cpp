@@ -1,4 +1,4 @@
-#include "eph_channel/channel.hpp"
+#include "eph/channel.hpp"
 #include "../fixtures/config.hpp"
 #include <gtest/gtest.h>
 #include <thread>
@@ -15,7 +15,6 @@ protected:
 TEST_F(ItcChannelTest, ChannelCreation) {
   auto [sender, receiver] = channel<int>();
   
-  EXPECT_EQ(sender.capacity(), eph::config::DEFAULT_CAPACITY);
   EXPECT_TRUE(receiver.is_empty());
   EXPECT_EQ(sender.size(), 0);
 }

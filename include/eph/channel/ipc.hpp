@@ -1,12 +1,14 @@
 #pragma once
 
-#include "ring_buffer.hpp"
-#include "shared_memory.hpp"
+#include "eph/core/ring_buffer.hpp"
+#include "eph/core/shared_memory.hpp"
 #include <chrono>
 #include <optional>
 #include <string>
 
 namespace eph::ipc {
+
+static constexpr size_t DEFAULT_CAPACITY = 1024;
 
 /**
  * @brief IPC 消息发送端 (SPSC Queue Writer)
@@ -16,7 +18,7 @@ namespace eph::ipc {
  * - **不可丢弃**: 不同于
  * Snapshot，这里的每个包都承载独立信息（如订单流），原则上不应覆盖。
  */
-template <typename T, size_t Capacity = config::DEFAULT_CAPACITY>
+template <typename T, size_t Capacity = DEFAULT_CAPACITY>
   requires ShmData<T>
 class Sender {
 public:
@@ -82,7 +84,7 @@ private:
 /**
  * @brief IPC 消息接收端 (SPSC Queue Reader)
  */
-template <typename T, size_t Capacity = config::DEFAULT_CAPACITY>
+template <typename T, size_t Capacity = DEFAULT_CAPACITY>
   requires ShmData<T>
 class Receiver {
 public:
@@ -148,7 +150,7 @@ private:
   SharedMemory<RingBuffer<T, Capacity>> shm_;
 };
 
-template <typename T, size_t Capacity = config::DEFAULT_CAPACITY>
+template <typename T, size_t Capacity = DEFAULT_CAPACITY>
 auto channel(const std::string &name, bool use_huge_pages = false) {
   Sender<T, Capacity> sender(name, use_huge_pages);
   Receiver<T, Capacity> receiver(name, use_huge_pages);

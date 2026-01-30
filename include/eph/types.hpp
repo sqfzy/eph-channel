@@ -4,12 +4,6 @@
 
 namespace eph {
 
-namespace config {
-constexpr std::size_t CACHE_LINE_SIZE = 64;
-constexpr size_t DEFAULT_CAPACITY = 1024;
-constexpr size_t HUGE_PAGE_SIZE = 2 * 1024 * 1024; // 2MB
-} // namespace config
-
 /**
  * @brief [数据约束] 共享内存数据类型 Concept
  *

@@ -1,12 +1,11 @@
-#include "benchmark/config.hpp"
-#include "eph_channel/channel.hpp"
+#include "eph/channel.hpp"
 #include "ping_pong_common.hpp"
 
 #include <cassert>
 #include <iostream>
 #include <unistd.h>
 
-using namespace benchmark;
+using namespace eph::benchmark;
 using namespace eph::ipc;
 
 int main() {

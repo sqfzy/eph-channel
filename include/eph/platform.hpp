@@ -13,6 +13,11 @@
 
 namespace eph {
 
+namespace detail {
+constexpr std::size_t CACHE_LINE_SIZE = 64;
+constexpr size_t HUGE_PAGE_SIZE = 2 * 1024 * 1024; // 2MB
+}
+
 /**
  * @brief CPU 自旋等待策略 (Hint 指令)
  *

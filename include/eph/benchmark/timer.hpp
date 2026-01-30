@@ -13,7 +13,7 @@
 #include <x86intrin.h>
 #endif
 
-namespace benchmark {
+namespace eph::benchmark {
 
 class TSC {
 public:
@@ -27,7 +27,7 @@ public:
 #endif
 
   // 单例访问
-  static TSC &get() {
+  static TSC &global() {
     static TSC instance;
     return instance;
   }
@@ -104,7 +104,7 @@ public:
     uint64_t end = TSC::now();
     uint64_t diff = end - start_;
 
-    double ns = TSC::get().to_ns(diff);
+    double ns = TSC::global().to_ns(diff);
 
     // 自动缩放单位
     if (ns < 1000.0) {

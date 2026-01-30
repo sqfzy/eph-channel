@@ -1,6 +1,7 @@
 #pragma once
 
-#include "types.hpp"
+#include "eph/platform.hpp"
+#include "eph/types.hpp"
 #include <atomic>
 #include <cassert>
 #include <cstddef>
@@ -18,6 +19,8 @@
 #include <utility>
 
 namespace eph {
+
+using namespace eph::detail;
 
 namespace detail {
 
@@ -153,10 +156,8 @@ template <typename T>
 class SharedMemory {
 private:
   struct Layout {
-    alignas(config::CACHE_LINE_SIZE) std::atomic<bool> initialized{false};
-    alignas(alignof(T) > config::CACHE_LINE_SIZE
-                ? alignof(T)
-                : config::CACHE_LINE_SIZE) T data;
+    alignas(CACHE_LINE_SIZE) std::atomic<bool> initialized{false};
+    alignas(alignof(T) > CACHE_LINE_SIZE ? alignof(T) : CACHE_LINE_SIZE) T data;
   };
 
 public:
@@ -165,7 +166,7 @@ public:
 
     size_t raw_size = sizeof(Layout);
     if (use_huge_pages_) {
-      raw_size = align_up<config::HUGE_PAGE_SIZE>(raw_size);
+      raw_size = align_up<HUGE_PAGE_SIZE>(raw_size);
     }
 
     handle_ = detail::map_raw_bytes(name, raw_size, is_owner_, use_huge_pages_);

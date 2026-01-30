@@ -1,7 +1,7 @@
 #pragma once
 
-#include "seq_lock.hpp"
-#include "shared_memory.hpp"
+#include "eph/core/seq_lock.hpp"
+#include "eph/core/shared_memory.hpp"
 #include <chrono>
 #include <memory>
 #include <string>

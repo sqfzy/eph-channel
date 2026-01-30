@@ -1,4 +1,4 @@
-#include "eph_channel/ring_buffer.hpp"
+#include "eph/core/ring_buffer.hpp"
 #include "../fixtures/config.hpp"
 #include "../fixtures/utils.hpp"
 #include <gtest/gtest.h>
@@ -151,7 +151,7 @@ TEST_F(RingBufferComplexTypeTest, LargeObjectHandling) {
 
 TEST_F(RingBufferComplexTypeTest, MemoryAlignment) {
   // 验证关键成员的对齐
-  alignas(config::CACHE_LINE_SIZE) RingBuffer<int, 8> rb;
+  alignas(1024) RingBuffer<int, 8> rb;
   
   // 注意：这里无法直接访问私有成员，仅验证对象本身对齐
   verify_alignment(&rb, alignof(decltype(rb)));

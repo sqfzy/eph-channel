@@ -1,4 +1,4 @@
-#include "eph_channel/channel.hpp"
+#include "eph/channel.hpp"
 #include <iostream>
 #include <thread>
 #include <chrono>

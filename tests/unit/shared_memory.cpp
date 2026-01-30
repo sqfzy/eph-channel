@@ -1,4 +1,4 @@
-#include "eph_channel/shared_memory.hpp"
+#include "eph/core/shared_memory.hpp"
 #include "../fixtures/config.hpp"
 #include "../fixtures/utils.hpp"
 #include "../fixtures/ipc_fixture.hpp"

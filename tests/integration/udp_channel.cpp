@@ -1,4 +1,4 @@
-#include "eph_channel/channel.hpp"
+#include "eph/channel.hpp"
 #include "../fixtures/config.hpp"
 #include "../fixtures/utils.hpp"
 #include <gtest/gtest.h>

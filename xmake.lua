@@ -1,4 +1,4 @@
-set_project("eph_channel")
+set_project("eph")
 set_version("1.0.0")
 
 add_rules("mode.debug", "mode.release")
@@ -12,20 +12,17 @@ end
 -----------------------------------------------------------------------------
 -- 依赖管理
 -----------------------------------------------------------------------------
-add_requires("benchmark")
 add_includedirs("/usr/include/iceoryx/v2.95.8")
-add_requires("iceoryx")
-add_requires("gtest")
+add_requires("benchmark", "gtest", "iceoryx")
 add_syslinks("numa")
 
 -----------------------------------------------------------------------------
 -- 核心库 (Header-only)
 -----------------------------------------------------------------------------
-target("eph_channel")
+target("eph")
 set_kind("headeronly")
--- 导出接口：让所有 add_deps(xxx) 的目标自动获得这些配置
 add_includedirs("include", { public = true })
-add_headerfiles("include/(eph_channel/*.hpp)")
+add_headerfiles("include/(eph/**/*.hpp)")
 
 -----------------------------------------------------------------------------
 -- Examples
@@ -37,8 +34,9 @@ for _, file in ipairs(os.files("examples/*.cpp")) do
     target("example_" .. name)
     set_kind("binary")
     set_group("examples")
+    set_default(false)
     add_files(file)
-    add_deps("eph_channel")
+    add_deps("eph")
     add_syslinks("pthread")
 end
 
@@ -46,15 +44,15 @@ end
 -- Benchmarks
 -----------------------------------------------------------------------------
 if is_mode("release") then
-    for _, file in ipairs(os.files("benchmark/examples/*.cpp")) do
+    for _, file in ipairs(os.files("benchmarks/*.cpp")) do
         local name = path.basename(file)
 
         target("benchmark_" .. name)
         set_kind("binary")
         set_group("benchmarks")
+        set_default(false)
         add_files(file)
-        add_deps("eph_channel")
-        add_includedirs("benchmark/include", "benchmark/examples")
+        add_deps("eph")
 
         if name:find("iox") then
             add_packages("iceoryx")
@@ -76,14 +74,8 @@ for _, file in ipairs(os.files("tests/**/*.cpp")) do
     set_group("tests")
     add_files(file)
     add_files("tests/main.cpp")
-    add_deps("eph_channel")
+    add_deps("eph")
     add_packages("gtest")
     set_default(false)
     add_tests("default") -- 允许 xmake test 运行
 end
-
-target("numa_demo")
-set_kind("binary")
-add_files("examples/numa_demo.cpp")
--- 链接 libnuma
-add_syslinks("numa")

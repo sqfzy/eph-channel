@@ -1,10 +1,13 @@
 #pragma once
 
-#include "platform.hpp"
-#include "types.hpp"
+#include "eph/platform.hpp"
+#include "eph/types.hpp"
 #include <atomic>
 
+
 namespace eph {
+
+using namespace eph::detail;
 
 /**
  * @brief 单生产者-多消费者 (SPMC) 顺序锁快照容器
@@ -20,19 +23,19 @@ namespace eph {
  */
 template <typename T>
   requires ShmData<T>
-class alignas(alignof(T) > config::CACHE_LINE_SIZE ? alignof(T)
-                                                   : config::CACHE_LINE_SIZE)
+class alignas(alignof(T) > CACHE_LINE_SIZE ? alignof(T)
+                                                   : CACHE_LINE_SIZE)
     SeqLock {
   static_assert(std::atomic<uint64_t>::is_always_lock_free,
                 "SeqLock requires lock-free std::atomic<uint64_t>");
 
 private:
   // 版本号：偶数=空闲，奇数=正在写入
-  alignas(config::CACHE_LINE_SIZE) std::atomic<uint64_t> seq_{0};
+  alignas(CACHE_LINE_SIZE) std::atomic<uint64_t> seq_{0};
 
-  alignas(alignof(T) > config::CACHE_LINE_SIZE
+  alignas(alignof(T) > CACHE_LINE_SIZE
               ? alignof(T)
-              : config::CACHE_LINE_SIZE) T data_;
+              : CACHE_LINE_SIZE) T data_;
 
 public:
   SeqLock() noexcept = default;

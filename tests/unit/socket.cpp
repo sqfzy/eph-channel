@@ -1,4 +1,4 @@
-#include "eph_channel/socket.hpp"
+#include "eph/core/socket.hpp"
 #include <gtest/gtest.h>
 #include <netinet/tcp.h>
 

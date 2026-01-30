@@ -1,8 +1,8 @@
-#include "benchmark/config.hpp"
-#include "benchmark/timer.hpp"
-#include "benchmark/recorder.hpp" 
+#include "eph/benchmark/timer.hpp"
+#include "eph/benchmark/recorder.hpp" 
+#include "ping_pong_common.hpp"
 
-#include <eph_channel/platform.hpp>
+#include <eph/platform.hpp>
 #include <iceoryx_posh/popo/publisher.hpp>
 #include <iceoryx_posh/popo/subscriber.hpp>
 #include <iceoryx_posh/runtime/posh_runtime.hpp>
@@ -10,7 +10,7 @@
 #include <print>
 #include <thread>
 
-using namespace benchmark;
+using namespace eph::benchmark;
 
 // -----------------------------------------------------------------------------
 // 辅助函数：等待数据可用
@@ -30,7 +30,7 @@ void run_producer() {
   eph::set_realtime_priority();
   
   // 初始化 TSC
-  TSC::get().init();
+  TSC::global().init();
 
   iox::runtime::PoshRuntime::initRuntime(BenchConfig::IOX_APP_NAME_PRODUCER);
 
@@ -73,7 +73,7 @@ void run_producer() {
   std::print("[Producer] Running benchmark ({} iterations)...\n", BenchConfig::ITERATIONS);
 
   for (int i = 0; i < BenchConfig::ITERATIONS; ++i) {
-    uint64_t t0 = TSC::get().now();
+    uint64_t t0 = TSC::global().now();
 
     ping_pub.loan()
         .and_then([&](auto &sample) {
@@ -90,7 +90,7 @@ void run_producer() {
 
     pong_sub.take()
         .and_then([&](const auto &sample) {
-          uint64_t t1 = TSC::get().now();
+          uint64_t t1 = TSC::global().now();
 
           if (sample->sequence_id != static_cast<uint64_t>(i + 1)) {
             std::print(stderr, "Sequence mismatch! Expected {}, got {}\n", i + 1, sample->sequence_id);

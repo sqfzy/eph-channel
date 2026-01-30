@@ -11,7 +11,8 @@
 #include <vector>
 
 namespace fs = std::filesystem;
-using namespace benchmark;
+
+namespace eph::benchmark {
 
 class Recorder {
 public:
@@ -109,7 +110,7 @@ public:
   // =========================================================
   void export_samples_to_csv(const std::string &output_dir = "outputs") const {
     ensure_directory(output_dir);
-    double ns_per_cycle = TSC::get().to_ns(1);
+    double ns_per_cycle = TSC::global().to_ns(1);
 
     std::string time_str = get_current_time_str();
     fs::path path = fs::path(output_dir) /
@@ -160,7 +161,7 @@ private:
 
     // 1. 获取当前转换倍率 (1 Cycle = ? ns)
     // 技巧：调用 to_ns(1) 获取 ns_per_cycle
-    double ns_per_cycle = TSC::get().to_ns(1);
+    double ns_per_cycle = TSC::global().to_ns(1);
 
     // 2. 拷贝并排序样本 (Cycles)
     std::vector<double> sorted = samples_;
@@ -199,3 +200,5 @@ private:
     return name;
   }
 };
+
+} // namespace eph::benchmark

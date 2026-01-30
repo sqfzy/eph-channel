@@ -1,17 +1,21 @@
 #pragma once
 
-#include "platform.hpp"
-#include "socket.hpp"
-#include "types.hpp"
+#include "eph/platform.hpp"
+#include "eph/core/socket.hpp"
+#include "eph/types.hpp"
 #include <chrono>
 #include <optional>
 #include <string>
 
 namespace eph::udp {
 
+using namespace eph::detail;
+
 using eph::imc::Socket;
 
-template <typename T, size_t Capacity = config::DEFAULT_CAPACITY>
+static constexpr size_t DEFAULT_CAPACITY = 1024;
+
+template <typename T, size_t Capacity = DEFAULT_CAPACITY>
   requires ShmData<T>
 class Sender {
 public:
@@ -81,7 +85,7 @@ private:
   Socket socket_;
 };
 
-template <typename T, size_t Capacity = config::DEFAULT_CAPACITY>
+template <typename T, size_t Capacity = DEFAULT_CAPACITY>
   requires ShmData<T>
 class Receiver {
 public:
