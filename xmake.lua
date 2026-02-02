@@ -13,9 +13,9 @@ end
 -- 依赖管理
 -----------------------------------------------------------------------------
 -- vcpkg 2.** 版本太低，需要最新版
-add_includedirs("/usr/include/iceoryx/v2.95.8")
+-- add_includedirs("/usr/include/iceoryx/v2.95.8")
 add_requires("gtest")
-add_requires("iceoryx")
+-- add_requires("iceoryx")
 add_syslinks("numa")
 
 -----------------------------------------------------------------------------
@@ -56,9 +56,9 @@ if is_mode("release") then
         add_files(file)
         add_deps("eph")
 
-        if name:find("iox") then
-            add_packages("iceoryx")
-        end
+        -- if name:find("iox") then
+        --     add_packages("iceoryx")
+        -- end
 
         add_syslinks("pthread")
     end
