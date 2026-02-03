@@ -6,99 +6,93 @@ import polars as pl
 import argparse
 from scipy import stats
 
-def add_kde_trace(fig, data, row, col, color='purple', name='Density'):
-    """
-    辅助函数：计算并添加 KDE 曲线到指定的子图位置
-    """
-    try:
-        kde = stats.gaussian_kde(data)
-        x_range = np.linspace(min(data), max(data), 500)
-        y_kde = kde(x_range)
-        
-        fig.add_trace(
-            go.Scatter(x=x_range, y=y_kde, mode='lines', name=name, line=dict(color=color, width=2)),
-            row=row, col=col
-        )
-    except Exception as e:
-        print(f"KDE 计算失败: {e}")
-
 def plot_and_save_all(input, output):
-    # 1. 读取数据
+    # 1. 读取数据 (HdrHistogram 导出格式: value_ns, count)
     df = pl.read_csv(input)
-    latency_data = df["latency_ns"].to_numpy()
+    
+    # 确保按延迟值排序
+    df = df.sort("value_ns")
+    
+    # 预计算统计量
+    total_count = df["count"].sum()
+    
+    # 计算加权平均值
+    mean_val = (df["value_ns"] * df["count"]).sum() / total_count
+    
+    # 计算 CDF
+    df = df.with_columns(
+        (pl.col("count").cum_sum() / total_count).alias("cdf")
+    )
     
     # 计算过滤阈值 (P99)
-    upper_bound = df["latency_ns"].quantile(0.99)
-    df_clean = df.filter(pl.col("latency_ns") <= upper_bound)
+    # 找到第一个 CDF >= 0.99 的 value_ns
+    p99_val = df.filter(pl.col("cdf") >= 0.99)["value_ns"].head(1).item()
+    df_clean = df.filter(pl.col("value_ns") <= p99_val)
 
     # 2. 创建 3 行 1 列的子图容器
     fig = make_subplots(
         rows=3, cols=1,
         subplot_titles=(
-            "1. Time Series (Raw)", 
+            "1. Cumulative Distribution (CDF)",
             "2. Latency Distribution (Log Scale - All Data)", 
             "3. Latency Body Distribution (Linear Scale - Filtered P99)"
         ),
-        vertical_spacing=0.08  # 调整子图之间的垂直间距
+        vertical_spacing=0.10
     )
 
-    # --- 图表 1: Time Series ---
+    # --- 图表 1: CDF (替代 Time Series) ---
+    # 由于没有时序数据(seq)，CDF 是最佳的替代总览图
     fig.add_trace(
-        go.Scatter(x=df["seq"], y=df["latency_ns"], mode='lines', name='Latency TS', line=dict(width=1)),
+        go.Scatter(x=df["value_ns"], y=df["cdf"], mode='lines', name='CDF', line=dict(width=2)),
         row=1, col=1
     )
 
     # --- 图表 2: Histogram (Log Scale) ---
-    # 注意：make_subplots 中 histogram 需要手动添加
+    # 数据已聚合，使用 Bar 绘制
     fig.add_trace(
-        go.Histogram(x=df["latency_ns"], nbinsx=1000, name='Full Dist', marker_color='#636EFA'),
+        go.Bar(x=df["value_ns"], y=df["count"], name='Full Dist', marker_color='#636EFA'),
         row=2, col=1
     )
-    fig.update_yaxes(type="log", row=2, col=1) # 设置第二张图的 Y 轴为对数
+    fig.update_yaxes(type="log", row=2, col=1) 
 
-    # --- 图表 3: Histogram (Linear + KDE) ---
+    # --- 图表 3: Histogram (Linear - P99 Body) ---
     fig.add_trace(
-        go.Histogram(
-            x=df_clean["latency_ns"], nbinsx=1000, 
-            name='Clean Dist', marker_color='#00CC96', opacity=0.6,
-            histnorm='probability density' # 为了配合 KDE，使用密度形式
+        go.Bar(
+            x=df_clean["value_ns"], y=df_clean["count"], 
+            name='Clean Dist', marker_color='#00CC96', opacity=0.8
         ),
         row=3, col=1
     )
-    # 添加 KDE
-    add_kde_trace(fig, df_clean["latency_ns"].to_numpy(), row=3, col=1, name='Body Density')
+    
     # 添加平均值虚线
-    mean_val = df_clean["latency_ns"].mean()
-    fig.add_vline(x=mean_val, line_dash="dash", line_color="black", row=3, col=1)
+    fig.add_vline(x=mean_val, line_dash="dash", line_color="black", annotation_text="Mean", row=3, col=1)
 
     # 3. 统一布局设置
     fig.update_layout(
-        # height=1200,  # 增加总高度以容纳三张图
-        # width=1000,
-        title_text="Shared Memory Latency Comprehensive Analysis",
+        height=1000, 
+        title_text=f"Latency Analysis (Total: {total_count})",
         showlegend=False,
-        template="plotly_white"
+        template="plotly_white",
+        bargap=0 # 直方图之间无缝隙更像分布图
     )
 
     # 设置各轴标签
-    fig.update_xaxes(title_text="Sequence ID", row=1, col=1)
+    fig.update_xaxes(title_text="Latency (ns)", row=1, col=1)
+    fig.update_yaxes(title_text="Probability (CDF)", range=[0, 1.05], row=1, col=1)
+    
     fig.update_xaxes(title_text="Latency (ns)", row=2, col=1)
-    fig.update_xaxes(title_text="Latency (ns)", row=3, col=1)
-    fig.update_yaxes(title_text="Latency (ns)", row=1, col=1)
     fig.update_yaxes(title_text="Count (Log)", row=2, col=1)
-    fig.update_yaxes(title_text="Density", row=3, col=1)
+    
+    fig.update_xaxes(title_text="Latency (ns)", row=3, col=1)
+    fig.update_yaxes(title_text="Count", row=3, col=1)
 
     # 4. 显示与保存
-    # fig.show()
-    
-    # 保存为交互式 HTML 文件
     fig.write_html(output)
     print(f"图表已保存为 {output}")
 
 if __name__ == "__main__":
-    # 第一个参数是输入路径，第二个是输出路径
-    parser = argparse.ArgumentParser(description="Plot Shared Memory Latency Analysis")   
-    parser.add_argument("input", type=str, default="shm_latency.csv", help="Input CSV file path")
+    parser = argparse.ArgumentParser(description="Plot Latency Analysis (HdrHistogram CSV)")   
+    parser.add_argument("input", type=str, default="shm_latency_hist.csv", help="Input CSV file path")
     parser.add_argument("output", type=str, default="latency_report.html", help="Output HTML file path")
 
     args = parser.parse_args()

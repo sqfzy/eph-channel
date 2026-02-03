@@ -1,3 +1,20 @@
+package("ephemeral")
+    -- 1. 基础元数据
+    set_description("High-frequency trading C++ primitive")
+    set_urls("https://github.com/sqfzy/ephemeral.git")
+    add_versions("1.0", "")
+
+    -- 2. 安装逻辑
+    on_install(function (package)
+        import("package.tools.xmake").install(package)
+    end)
+
+    -- 3. 测试
+    on_test(function (package)
+        -- 验证安装是否成功，例如检查头文件或函数
+        assert(package:has_cfuncs("foo", {includes = "foo.h"}))
+    end)
+
 set_project("eph")
 set_version("1.0.0")
 
@@ -24,6 +41,7 @@ add_syslinks("numa")
 target("eph")
 set_kind("headeronly")
 add_includedirs("include", { public = true })
+add_headerfiles("include/(eph/*.hpp)")
 add_headerfiles("include/(eph/**/*.hpp)")
 
 -----------------------------------------------------------------------------
