@@ -88,7 +88,7 @@ package("eph")
     set_description("High-frequency trading C++ primitive")
 
     set_urls("https://github.com/sqfzy/ephemeral.git")
-    add_versions("1.0", "77de1d2")
+    add_versions("1.0", "35dde55")
 
     on_install(function (package)
         local configs = {}
