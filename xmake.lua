@@ -82,13 +82,12 @@ for _, file in ipairs(os.files("tests/**/*.cpp")) do
     add_tests("default") -- 允许 xmake test 运行
 end
 
-
 package("eph")
     set_kind("library", {headeronly = true})
     set_description("High-frequency trading C++ primitive")
 
     set_urls("https://github.com/sqfzy/ephemeral.git")
-    add_versions("1.0", "35dde55")
+    add_versions("1.0", "9e317e3")
 
     on_install(function (package)
         local configs = {}
