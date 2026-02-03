@@ -2,7 +2,7 @@ package("ephemeral")
     -- 1. 基础元数据
     set_description("High-frequency trading C++ primitive")
     set_urls("https://github.com/sqfzy/ephemeral.git")
-    add_versions("1.0", "")
+    add_versions("1.0", "87b112a")
 
     -- 2. 安装逻辑
     on_install(function (package)
@@ -11,9 +11,14 @@ package("ephemeral")
 
     -- 3. 测试
     on_test(function (package)
-        -- 验证安装是否成功，例如检查头文件或函数
-        assert(package:has_cfuncs("foo", {includes = "foo.h"}))
+        package:check_cxxsnippets({test = [[
+            #include <eph/platform.hpp>
+            void test() {
+                eph::cpu_relax();
+            }
+        ]]}, {configs = {languages = "c++23"}})
     end)
+
 
 set_project("eph")
 set_version("1.0.0")
@@ -33,7 +38,9 @@ end
 -- add_includedirs("/usr/include/iceoryx/v2.95.8")
 add_requires("gtest")
 -- add_requires("iceoryx")
-add_syslinks("numa")
+if is_plat("linux") then
+    add_syslinks("numa")
+end
 
 -----------------------------------------------------------------------------
 -- 核心库 (header-only)
@@ -41,8 +48,7 @@ add_syslinks("numa")
 target("eph")
 set_kind("headeronly")
 add_includedirs("include", { public = true })
-add_headerfiles("include/(eph/*.hpp)")
-add_headerfiles("include/(eph/**/*.hpp)")
+add_headerfiles("include/(eph/**.hpp)")
 
 -----------------------------------------------------------------------------
 -- examples
