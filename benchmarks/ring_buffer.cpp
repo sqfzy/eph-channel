@@ -20,7 +20,7 @@ int main() {
         MockData<D> data{};
         std::string suffix = std::format("_D{}_B{}", D, B);
 
-        return run_bench(title + suffix, [&buffer] { buffer->push(data); },
+        return run_bench(title + suffix, [&] { buffer->push(data); },
                          {
                              .limit = 5s,
                          });
@@ -34,7 +34,7 @@ int main() {
         std::string suffix = std::format("_D{}_B{}", D, B);
 
         return run_bench(title + suffix,
-                         [&buffer] {
+                         [&] {
                            buffer->push(data);
                            auto res = buffer->pop();
                            do_not_optimize(res);
@@ -60,7 +60,7 @@ int main() {
         });
 
         return run_bench(title + suffix,
-                         [&buffer] {
+                         [&] {
                            auto res = buffer->pop();
                            do_not_optimize(res);
                          },
