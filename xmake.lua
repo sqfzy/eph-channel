@@ -48,7 +48,7 @@ if is_mode("release") then
 	for _, file in ipairs(os.files("benchmarks/*.cpp")) do
 		local name = path.basename(file)
 
-		target("benchmark_" .. name)
+		target("bench_" .. name)
 		    set_kind("binary")
 		    set_group("benchmarks")
 		    set_default(false)
@@ -75,33 +75,33 @@ for _, file in ipairs(os.files("tests/**.cpp")) do
 	    add_tests("default") -- 允许 xmake test 运行
 end
 
-package("eph")
-    set_kind("library", {headeronly = true})
-    set_description("High-frequency trading C++ primitive")
-
-    set_urls("https://github.com/sqfzy/ephemeral.git")
-    -- add_versions("1.0", "9e317e3")
-
-    on_load(function (package)
-        if package:is_plat("linux") then
-            -- 诉使用者：你需要链接 numa
-            package:add("syslinks", "numa")
-        end
-    end)
-
-    on_install(function (package)
-        local configs = {}
-        if package:config("shared") then
-            configs.kind = "shared"
-        end
-        import("package.tools.xmake").install(package, configs)
-    end)
-
-    on_test(function (package)
-        package:check_cxxsnippets({test = [[
-            #include <eph/platform.hpp>
-            void test() {
-                eph::cpu_relax();
-            }
-        ]]}, {configs = {languages = "c++23"}})
-    end)
+-- package("eph")
+--     set_kind("library", {headeronly = true})
+--     set_description("High-frequency trading C++ primitive")
+--
+--     set_urls("https://github.com/sqfzy/ephemeral.git")
+--     -- add_versions("1.0", "9e317e3")
+--
+--     on_load(function (package)
+--         if package:is_plat("linux") then
+--             -- 诉使用者：你需要链接 numa
+--             package:add("syslinks", "numa")
+--         end
+--     end)
+--
+--     on_install(function (package)
+--         local configs = {}
+--         if package:config("shared") then
+--             configs.kind = "shared"
+--         end
+--         import("package.tools.xmake").install(package, configs)
+--     end)
+--
+--     on_test(function (package)
+--         package:check_cxxsnippets({test = [[
+--             #include <eph/platform.hpp>
+--             void test() {
+--                 eph::cpu_relax();
+--             }
+--         ]]}, {configs = {languages = "c++23"}})
+--     end)

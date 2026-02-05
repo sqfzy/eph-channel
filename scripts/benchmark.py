@@ -33,7 +33,7 @@ def get_latest_file(pattern: str) -> Path | None:
 # --- 任务执行逻辑 ---
 
 def run_single_bench(name: str):
-    target_bin = f"benchmark_{name}"
+    target_bin = f"bench_{name}"
     exec_path = BUILD_DIR / target_bin
     needs_roudi = ("iox" in name) 
 

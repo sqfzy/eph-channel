@@ -1,5 +1,5 @@
 #include <gtest/gtest.h>
-#include "eph/core/seq_lock.hpp"
+#include "eph/core/ring_buffer.hpp"
 
 #include <atomic>
 #include <thread>
@@ -67,7 +67,7 @@ TEST(SeqLockTest, InitialState) {
     SeqLock<Point> sl;
     
     // 初始状态不应处于忙碌状态
-    EXPECT_FALSE(sl.may_busy());
+    EXPECT_FALSE(sl.busy());
     
     // 初始数据应为默认构造值
     Point p = sl.load();
@@ -136,7 +136,7 @@ TEST(SeqLockTest, ReaderFailsWhenWriterIsBusy) {
     writer_inside.wait(); 
 
     // 断言：此时 SeqLock 应该显示忙碌
-    EXPECT_TRUE(sl.may_busy());
+    EXPECT_TRUE(sl.busy());
     
     // 断言：try_load 应该失败
     Point p;
