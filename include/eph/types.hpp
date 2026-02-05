@@ -1,8 +1,15 @@
 #pragma once
 
+#include "eph/platform.hpp"
 #include <atomic>
 
 namespace eph {
+
+
+template <typename T>
+static constexpr size_t BufferAlign = (alignof(T) > detail::CACHE_LINE_SIZE)
+                                          ? alignof(T)
+                                          : detail::CACHE_LINE_SIZE;
 
 /**
  * @brief [数据约束] 共享内存数据类型 Concept

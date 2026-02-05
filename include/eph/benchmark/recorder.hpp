@@ -2,6 +2,7 @@
 
 #include "timer.hpp"
 #include <algorithm>
+#include <atomic>
 #include <bit>
 #include <cstdint>
 #include <filesystem>
@@ -10,6 +11,7 @@
 #include <limits>
 #include <print>
 #include <string>
+#include <variant>
 #include <vector>
 
 namespace fs = std::filesystem;
@@ -30,7 +32,8 @@ public:
   }
 
   void record(uint64_t value) {
-    if (value == 0) return; // 忽略 0 延迟
+    if (value == 0)
+      return; // 忽略 0 延迟
     size_t idx = get_index(value);
     if (idx < counts_.size()) {
       counts_[idx]++;
@@ -44,7 +47,8 @@ public:
   }
 
   [[nodiscard]] uint64_t get_value_at_percentile(double percentile) const {
-    if (total_count_ == 0) return 0;
+    if (total_count_ == 0)
+      return 0;
 
     double target_count = total_count_ * (percentile / 100.0);
     uint64_t current_count = 0;
@@ -62,14 +66,14 @@ public:
 
   [[nodiscard]] uint64_t get_max_value_recorded() const {
     for (size_t i = counts_.size() - 1; i > 0; --i) {
-      if (counts_[i] > 0) return get_value_from_index(i);
+      if (counts_[i] > 0)
+        return get_value_from_index(i);
     }
     return 0;
   }
 
   // 迭代器接口，用于导出数据
-  template <typename Func>
-  void for_each_recorded_value(Func func) const {
+  template <typename Func> void for_each_recorded_value(Func func) const {
     for (size_t i = 0; i < counts_.size(); ++i) {
       if (counts_[i] > 0) {
         func(get_value_from_index(i), counts_[i]);
@@ -98,7 +102,7 @@ private:
     // 量级偏移需要减去基础的 sub_bucket_bits，因为前 kBucketSize 个数直接存
     size_t magnitude_base = (magnitude - kSubBucketBits + 1) << kSubBucketBits;
     size_t sub_bucket = (value >> shift) & kSubBucketMask;
-    
+
     return magnitude_base + sub_bucket;
   }
 
@@ -107,16 +111,27 @@ private:
     if (index < kBucketSize) {
       return index;
     }
-    
+
     size_t magnitude_idx = index >> kSubBucketBits;
     size_t sub_bucket = index & kSubBucketMask;
-    
+
     int magnitude = magnitude_idx + kSubBucketBits - 1;
     int shift = magnitude - kSubBucketBits;
-    
-    uint64_t value = (static_cast<uint64_t>(1) << magnitude) + (sub_bucket << shift);
+
+    uint64_t value =
+        (static_cast<uint64_t>(1) << magnitude) + (sub_bucket << shift);
     return value;
   }
+};
+
+struct Stats {
+  std::string name;
+  uint64_t count;
+  double avg_ns;
+  double min_ns;
+  double max_ns;
+  double p50_ns;
+  double p99_ns;
 };
 
 class Recorder {
@@ -153,7 +168,7 @@ public:
 
     std::string time_str = get_current_time_str();
     std::string title = std::format(" BENCHMARK REPORT ({}) ", time_str);
-    Stats stats = compute_stats_ns();
+    Stats stats = compute_stats();
 
     constexpr int w_name = 40;
     constexpr int w_count = 10;
@@ -183,7 +198,7 @@ public:
   // =========================================================
   void export_json(const std::string &output_dir = "outputs") const {
     ensure_directory(output_dir);
-    Stats stats = compute_stats_ns();
+    Stats stats = compute_stats();
     std::string time_str = get_current_time_str();
 
     std::string filename = sanitize_filename(name_) + "_" + time_str + ".json";
@@ -217,26 +232,49 @@ public:
   // 导出 "Value(ns), Count" 的分布数据。
   void export_samples_to_csv(const std::string &output_dir = "outputs") const {
     ensure_directory(output_dir);
-    double ns_per_cycle = TSC::global().to_ns(1);
+    double ns_per_cycle = TSC::to_ns(1);
 
     std::string time_str = get_current_time_str();
-    // 文件名添加 _hist 后缀以示区别
     fs::path path = fs::path(output_dir) /
-                    (sanitize_filename(name_) + "_" + time_str + "_hist.csv");
+                    (sanitize_filename(name_) + "_" + time_str + ".csv");
     std::ofstream file(path);
     if (!file.is_open())
       return;
 
     file << "value_ns,count\n";
-    
+
     // 遍历直方图并导出
     histogram_.for_each_recorded_value([&](uint64_t cycles, uint32_t count) {
-       file << std::format("{:.2f},{}\n", cycles * ns_per_cycle, count);
+      file << std::format("{:.2f},{}\n", cycles * ns_per_cycle, count);
     });
 
     std::println("Distribution CSV exported to: {}", path.string());
   }
-  
+
+  // 计算统计值并转为纳秒
+  Stats compute_stats() const {
+    if (count_ == 0) {
+      return {name_, 0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    }
+
+    double ns_per_cycle = TSC::to_ns(1);
+
+    double avg_cyc = total_cycles_ / count_;
+
+    double p50_cyc =
+        static_cast<double>(histogram_.get_value_at_percentile(50.0));
+    double p99_cyc =
+        static_cast<double>(histogram_.get_value_at_percentile(99.0));
+
+    return Stats{name_,
+                 count_,
+                 avg_cyc * ns_per_cycle,
+                 min_cycles_ * ns_per_cycle,
+                 max_cycles_ * ns_per_cycle,
+                 p50_cyc * ns_per_cycle,
+                 p99_cyc * ns_per_cycle};
+  }
+
   // 重置记录器 (清空 Histogram)
   void reset() {
     count_ = 0;
@@ -247,23 +285,12 @@ public:
   }
 
 private:
-  struct Stats {
-    std::string name;
-    uint64_t count;
-    double avg_ns;
-    double min_ns;
-    double max_ns;
-    double p50_ns;
-    double p99_ns;
-  };
-
   std::string name_;
   uint64_t count_ = 0;
   double total_cycles_ = 0.0;
   double min_cycles_ = std::numeric_limits<double>::max();
   double max_cycles_ = 0.0;
-  
-  // 替换 std::vector<double> samples_;
+
   SimpleHdrHistogram histogram_;
 
   // 获取格式化时间串：YYYY-MM-DD-HH:MM:SS
@@ -271,30 +298,6 @@ private:
     auto now = std::chrono::system_clock::now();
     auto now_sec = std::chrono::floor<std::chrono::seconds>(now);
     return std::format("{:%Y-%m-%d-%H:%M:%S}", now_sec);
-  }
-
-  // 内部辅助：计算统计值并转为纳秒
-  Stats compute_stats_ns() const {
-    if (count_ == 0) {
-      return {name_, 0, 0.0, 0.0, 0.0, 0.0, 0.0};
-    }
-
-    double ns_per_cycle = TSC::global().to_ns(1);
-
-    double avg_cyc = total_cycles_ / count_;
-    
-    // 从 Histogram 获取 Cycles 统计值
-    // 注意：Histogram 存储的是整数 Cycles
-    double p50_cyc = static_cast<double>(histogram_.get_value_at_percentile(50.0));
-    double p99_cyc = static_cast<double>(histogram_.get_value_at_percentile(99.0));
-
-    return Stats{name_,
-                 count_,
-                 avg_cyc * ns_per_cycle,
-                 min_cycles_ * ns_per_cycle,
-                 max_cycles_ * ns_per_cycle,
-                 p50_cyc * ns_per_cycle,
-                 p99_cyc * ns_per_cycle};
   }
 
   void ensure_directory(const std::string &path) const {
@@ -314,5 +317,74 @@ private:
     return name;
   }
 };
+
+// =========================================================
+// 自动化基准测试入口
+// =========================================================
+
+struct BenchOptions {
+  // 运行模式：次数 或 持续时间
+  std::variant<size_t, std::chrono::seconds> limit = size_t(10000);
+  // 预热次数 (不计入统计)
+  size_t warmup = 100;
+  // 导出文件的目录
+  std::string output_dir = "outputs";
+  bool export_json = false;
+  bool export_csv = false;
+};
+
+/**
+ * @brief 自动运行基准测试、打印报告并导出 JSON/CSV。
+ * * @tparam Func 待测函数类型 (通常是 Lambda)
+ * @param name 测试任务名称
+ * @param func 待测代码块
+ * @param options 配置项 (可选, 支持指定初始化)
+ */
+template <typename Func>
+  requires std::invocable<Func>
+Stats run_bench(std::string name, Func &&func, BenchOptions options = {}) {
+  // 1. 准备 Recorder
+  Recorder recorder(std::move(name));
+
+  // 2. 预热阶段 (Warmup)
+  // 目的: 填充指令缓存 (I-Cache)、激活分支预测器、甚至触发 JIT/PageFault
+  for (size_t i = 0; i < options.warmup; ++i) {
+    // 简单调用，不进行计时
+    std::invoke(func);
+    // 强行屏障，防止编译器将预热循环优化掉
+    std::atomic_signal_fence(std::memory_order_relaxed);
+  }
+
+  // 3. 正式测量阶段 (Benchmark)
+  if (std::holds_alternative<size_t>(options.limit)) {
+    // 基于次数模式
+    size_t iters = std::get<size_t>(options.limit);
+    for (size_t i = 0; i < iters; ++i) {
+      recorder.record(static_cast<double>(measure(func)));
+    }
+  } else {
+    // 基于时间模式
+    auto duration = std::get<std::chrono::seconds>(options.limit);
+    auto start_time = std::chrono::steady_clock::now();
+
+    while (std::chrono::steady_clock::now() - start_time < duration) {
+      recorder.record(static_cast<double>(measure(func)));
+    }
+  }
+
+  // 4. 导出
+  // 控制台报告
+  recorder.print_report();
+  // 详细统计 JSON
+  if (options.export_json) {
+    recorder.export_json(options.output_dir);
+  }
+  // 原始分布 CSV
+  if (options.export_csv) {
+    recorder.export_samples_to_csv(options.output_dir);
+  }
+
+  return recorder.compute_stats();
+}
 
 } // namespace eph::benchmark

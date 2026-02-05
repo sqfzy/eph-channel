@@ -1,161 +1,154 @@
 #pragma once
 
 #include "eph/core/ring_buffer.hpp"
+#include "eph/core/seq_lock.hpp"
+#include "eph/core/seq_lock_buffer.hpp"
 #include "eph/core/shared_memory.hpp"
-#include <chrono>
-#include <optional>
 #include <string>
 
 namespace eph::ipc {
 
-static constexpr size_t DEFAULT_CAPACITY = 1024;
+// =========================================================
+// 1. Queue (基于 RingBuffer + SHM)
+// =========================================================
 
-/**
- * @brief IPC 消息发送端 (SPSC Queue Writer)
- *
- * @details
- * 基于 RingBuffer 的队列语义封装。
- * - **不可丢弃**: 不同于
- * Snapshot，这里的每个包都承载独立信息（如订单流），原则上不应覆盖。
- */
-template <typename T, size_t Capacity = DEFAULT_CAPACITY>
-  requires ShmData<T>
-class Sender {
+template <typename T, size_t Capacity = 1024> class Sender {
 public:
-  /**
-   * @param name 共享内存名称
-   * @param use_huge_pages 是否使用大页 (2MB/1GB)
-   */
-  explicit Sender(std::string name, bool use_huge_pages = false)
+  using DataType = T;
+  // is_owner = true
+  Sender(std::string name, bool use_huge_pages)
       : shm_(std::move(name), true, use_huge_pages) {}
 
-  // --- 基础接口 ---
+  // 阻塞发送，绝不丢数据
   void send(const T &data) { shm_->push(data); }
-  [[nodiscard]] bool try_send(const T &data) { return shm_->try_push(data); }
-
-  // --- 超时接口 ---
-  template <class Rep, class Period>
-  bool send(const T &data, const std::chrono::duration<Rep, Period> &timeout) {
-    auto start = std::chrono::steady_clock::now();
-    while (!try_send(data)) {
-      if (std::chrono::steady_clock::now() - start > timeout) {
-        return false;
-      }
-      cpu_relax();
-    }
-    return true;
-  }
-
-  template <class Clock, class Duration>
-  bool send(const T &data,
-            const std::chrono::time_point<Clock, Duration> &deadline) {
-    while (!try_send(data)) {
-      if (Clock::now() >= deadline) {
-        return false;
-      }
-      cpu_relax();
-    }
-    return true;
-  }
-
-  // --- 批量接口 ---
-  template <typename InputIt> size_t send_batch(InputIt first, InputIt last) {
-    size_t count = 0;
-    while (first != last) {
-      if (!try_send(*first)) {
-        break;
-      }
-      ++first;
-      ++count;
-    }
-    return count;
-  }
-
-  // --- 状态查询 ---
-  size_t size() const noexcept { return shm_->size(); }
-  bool is_full() const noexcept { return shm_->full(); }
-  static constexpr size_t capacity() noexcept { return Capacity; }
-  const std::string &name() const noexcept { return shm_.name(); }
+  bool try_send(const T &data) { return shm_->try_push(data); }
+  static constexpr size_t capacity() { return Capacity; }
 
 private:
   SharedMemory<RingBuffer<T, Capacity>> shm_;
 };
 
-/**
- * @brief IPC 消息接收端 (SPSC Queue Reader)
- */
-template <typename T, size_t Capacity = DEFAULT_CAPACITY>
-  requires ShmData<T>
-class Receiver {
+template <typename T, size_t Capacity = 1024> class Receiver {
 public:
-  /**
-   * @param name 共享内存名称
-   * @param use_huge_pages 是否使用大页 (2MB/1GB)。Receiver 必须与 Sender
-   * 的大页配置一致
-   */
-  explicit Receiver(std::string name, bool use_huge_pages = false)
+  using DataType = T;
+  // is_owner = false
+  Receiver(std::string name, bool use_huge_pages)
       : shm_(std::move(name), false, use_huge_pages) {}
 
-  // --- 基础接口 ---
   T receive() { return shm_->pop(); }
   void receive(T &out) { shm_->pop(out); }
-  [[nodiscard]] bool try_receive(T &out) { return shm_->try_pop(out); }
+  bool try_receive(T &out) { return shm_->try_pop(out); }
   std::optional<T> try_receive() { return shm_->try_pop(); }
-
-  // --- 超时接口 ---
-  template <class Rep, class Period>
-  bool receive(T &out, const std::chrono::duration<Rep, Period> &timeout) {
-    auto start = std::chrono::steady_clock::now();
-    while (!try_receive(out)) {
-      if (std::chrono::steady_clock::now() - start > timeout) {
-        return false;
-      }
-      cpu_relax();
-    }
-    return true;
-  }
-
-  template <class Clock, class Duration>
-  std::optional<T>
-  receive(const std::chrono::time_point<Clock, Duration> &deadline) {
-    T out;
-    while (!try_receive(out)) {
-      if (Clock::now() >= deadline) {
-        return std::nullopt;
-      }
-      cpu_relax();
-    }
-    return out;
-  }
-
-  // --- 批量接口 ---
-  template <typename OutputIt>
-  size_t receive_batch(OutputIt d_first, size_t max_count) {
-    size_t count = 0;
-    T temp;
-    while (count < max_count && try_receive(temp)) {
-      *d_first++ = temp;
-      ++count;
-    }
-    return count;
-  }
-
-  // --- 状态查询 ---
-  size_t size() const noexcept { return shm_->size(); }
-  bool is_empty() const noexcept { return shm_->empty(); }
-  static constexpr size_t capacity() noexcept { return Capacity; }
-  const std::string &name() const noexcept { return shm_.name(); }
+  static constexpr size_t capacity() { return Capacity; }
 
 private:
   SharedMemory<RingBuffer<T, Capacity>> shm_;
 };
 
-template <typename T, size_t Capacity = DEFAULT_CAPACITY>
-auto channel(const std::string &name, bool use_huge_pages = false) {
-  Sender<T, Capacity> sender(name, use_huge_pages);
-  Receiver<T, Capacity> receiver(name, use_huge_pages);
+// 工厂：IPC 队列
+template <typename T, size_t Capacity = 1024>
+auto make_queue(const std::string &name, bool use_huge_pages = false) {
+  return std::make_pair(Sender<T, Capacity>(name, use_huge_pages),
+                        Receiver<T, Capacity>(name, use_huge_pages));
+}
 
-  return std::make_pair(std::move(sender), std::move(receiver));
+// =========================================================
+// 2. Snapshot (基于 SeqLock + SHM)
+// =========================================================
+
+template <typename T> class Publisher {
+public:
+  using DataType = T;
+  Publisher(std::string name, bool use_huge_pages)
+      : shm_(std::move(name), true, use_huge_pages) {}
+
+  void publish(const T &data) { shm_->store(data); }
+
+  template <typename F>
+    requires std::invocable<F, T &>
+  void publish(F &&writer) {
+    shm_->write(std::forward<F>(writer));
+  }
+
+private:
+  SharedMemory<SeqLock<T>> shm_;
+};
+
+template <typename T> class Subscriber {
+public:
+  using DataType = T;
+  Subscriber(std::string name, bool use_huge_pages)
+      : shm_(std::move(name), false, use_huge_pages) {}
+
+  T fetch() { return shm_->load(); }
+  bool try_fetch(T &out) { return shm_->try_load(out); }
+
+  template <typename F>
+    requires std::invocable<F, T &>
+  void fetch(F &&visitor) {
+    shm_->read(std::forward<F>(visitor));
+  }
+
+private:
+  SharedMemory<SeqLock<T>> shm_;
+};
+
+// 工厂：IPC 快照
+template <typename T>
+auto make_snapshot(const std::string &name, bool use_huge_pages = false) {
+  return std::make_pair(Publisher<T>(name, use_huge_pages),
+                        Subscriber<T>(name, use_huge_pages));
+}
+
+// =========================================================
+// 3. Buffered Snapshot (基于 SeqLockBuffer + SHM)
+// =========================================================
+
+template <typename T, size_t N = 8> class BufferedPublisher {
+public:
+  using DataType = T;
+  BufferedPublisher(std::string name, bool use_huge_pages)
+      : shm_(std::move(name), true, use_huge_pages) {}
+
+  void publish(const T &data) { shm_->store(data); }
+
+  template <typename F>
+    requires std::invocable<F, T &>
+  void publish(F &&writer) {
+    shm_->write(std::forward<F>(writer));
+  }
+
+private:
+  SharedMemory<SeqLockBuffer<T, N>> shm_;
+};
+
+template <typename T, size_t N = 8> class BufferedSubscriber {
+public:
+  using DataType = T;
+  BufferedSubscriber(std::string name, bool use_huge_pages)
+      : shm_(std::move(name), false, use_huge_pages) {}
+
+  T fetch() { return shm_->load(); }
+  bool try_fetch(T &out) { return shm_->try_load(out); }
+
+  template <typename F>
+    requires std::invocable<F, T &>
+  void fetch(F &&visitor) {
+    while (!shm_->try_read(visitor)) {
+      eph::cpu_relax();
+    }
+  }
+
+private:
+  SharedMemory<SeqLockBuffer<T, N>> shm_;
+};
+
+// 工厂：IPC 缓冲快照
+template <typename T, size_t N = 8>
+auto make_buffered_snapshot(const std::string &name,
+                            bool use_huge_pages = false) {
+  return std::make_pair(BufferedPublisher<T, N>(name, use_huge_pages),
+                        BufferedSubscriber<T, N>(name, use_huge_pages));
 }
 
 } // namespace eph::ipc

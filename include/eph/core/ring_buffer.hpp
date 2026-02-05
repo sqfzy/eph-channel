@@ -4,8 +4,8 @@
 #include "eph/types.hpp"
 #include <array>
 #include <atomic>
-#include <optional>
 #include <bit>
+#include <optional>
 
 namespace eph {
 
@@ -22,9 +22,9 @@ namespace eph {
  * **内存布局与伪共享 (False Sharing) 防护：**
  * 严格按照“写入者”归类，将变量隔离在不同的缓存行 (Cache Line)。
  *
- * [ head_ (8B) | shadow_tail_ (8B) ... padding ... ] <--- Consumer Line (Consumer 写)
- * [ tail_ (8B) | shadow_head_ (8B) ... padding ... ] <--- Producer Line (Producer 写)
- * [ buffer_ ...                                    ] <--- Data Lines
+ * [ head_ (8B) | shadow_tail_ (8B) ... padding ... ] <--- Consumer Line
+ * (Consumer 写) [ tail_ (8B) | shadow_head_ (8B) ... padding ... ] <---
+ * Producer Line (Producer 写) [ buffer_ ... ] <--- Data Lines
  *
  * @tparam T 数据类型，必须是 TriviallyCopyable (POD)。
  * @tparam Capacity 容量，必须是 2 的幂。
@@ -54,12 +54,7 @@ class RingBuffer {
   ConsumerLine consumer_;
   ProducerLine producer_;
 
-  // 数据区对齐
-  static constexpr size_t BufferAlign = (alignof(T) > detail::CACHE_LINE_SIZE)
-                                            ? alignof(T)
-                                            : detail::CACHE_LINE_SIZE;
-
-  alignas(BufferAlign) std::array<T, Capacity> buffer_;
+  alignas(BufferAlign<T>) std::array<T, Capacity> buffer_;
 
   // ===========================================================================
   // 内核 (Kernels) - 单次原子操作
@@ -67,12 +62,12 @@ class RingBuffer {
 
   template <typename F> bool raw_produce(F &&writer) noexcept {
     const size_t tail = producer_.tail_.load(std::memory_order_relaxed);
-    
+
     // 1. 快速路径：使用影子索引检查是否有空间
     // shadow_head_ 是 head_ 的历史快照，一定 <= 实际 head_。
     // 如果 tail - shadow_head_ < Capacity，说明实际空间肯定足够。
     if (tail - producer_.shadow_head_ >= Capacity) {
-      
+
       // 2. 慢速路径：影子索引认为满了，重新加载实际 head_ (Acquire)
       // 这一步会产生跨核流量
       const size_t head = consumer_.head_.load(std::memory_order_acquire);
@@ -98,7 +93,7 @@ class RingBuffer {
     // shadow_tail_ 是 tail_ 的历史快照，一定 <= 实际 tail_。
     // 如果 shadow_tail_ > head，说明实际 tail_ 肯定 > head (有数据)。
     if (consumer_.shadow_tail_ == head) { // 等于意味着影子视角为空
-      
+
       // 2. 慢速路径：影子索引认为空了，重新加载实际 tail_ (Acquire)
       // 这一步会产生跨核流量
       const size_t tail = producer_.tail_.load(std::memory_order_acquire);
@@ -207,7 +202,7 @@ public:
   // ---------------------------------------------------------------------------
   // 状态查询
   // ---------------------------------------------------------------------------
-  
+
   size_t size() const noexcept {
     auto tail = producer_.tail_.load(std::memory_order_relaxed);
     auto head = consumer_.head_.load(std::memory_order_relaxed);

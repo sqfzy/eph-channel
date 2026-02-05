@@ -205,7 +205,14 @@ public:
     return *this;
   }
 
-  T *operator->() noexcept { return data(); }
+  T *operator->() noexcept {
+    assert(layout_ != nullptr && "Attempted to access moved-from SharedMemory");
+    if (!layout_) [[unlikely]] {
+      __builtin_unreachable(); // 告诉编译器：在这个调用点，layout_ 必不为空
+    }
+
+    return &layout_->data;
+  }
   const T *operator->() const noexcept { return data(); }
   explicit operator bool() const noexcept { return layout_ != nullptr; }
 

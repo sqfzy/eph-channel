@@ -35,7 +35,7 @@ private:
 
   alignas(alignof(T) > CACHE_LINE_SIZE
               ? alignof(T)
-              : CACHE_LINE_SIZE) T data_;
+              : CACHE_LINE_SIZE) T data_{};
 
 public:
   SeqLock() noexcept = default;
