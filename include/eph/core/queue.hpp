@@ -30,13 +30,13 @@ class BoundedQueue {
   // ===========================================================================
 
   // 消费者缓存行：Consumer 频繁写入，Producer 偶尔读取 head_
-  struct alignas(detail::CACHE_LINE_SIZE) ConsumerLine {
+  struct alignas(Align<T>) ConsumerLine {
     std::atomic<size_t> head_{0};
     size_t shadow_tail_{0}; // 消费者本地缓存的 tail，减少对 atomic tail_ 的读取
   };
 
   // 生产者缓存行：Producer 频繁写入，Consumer 偶尔读取 tail_
-  struct alignas(detail::CACHE_LINE_SIZE) ProducerLine {
+  struct alignas(Align<T>) ProducerLine {
     std::atomic<size_t> tail_{0};
     size_t shadow_head_{0}; // 生产者本地缓存的 head，减少对 atomic head_ 的读取
   };
@@ -44,7 +44,7 @@ class BoundedQueue {
   ConsumerLine consumer_;
   ProducerLine producer_;
 
-  alignas(BufferAlign<T>) std::array<T, Capacity> buffer_;
+  alignas(Align<T>) std::array<T, Capacity> buffer_;
 
   // ===========================================================================
   // 内核 (Kernels) - 单次原子操作

@@ -156,8 +156,8 @@ template <typename T>
 class SharedMemory {
 private:
   struct Layout {
-    alignas(CACHE_LINE_SIZE) std::atomic<bool> initialized{false};
-    alignas(alignof(T) > CACHE_LINE_SIZE ? alignof(T) : CACHE_LINE_SIZE) T data;
+    alignas(Align<T>) std::atomic<bool> initialized{false};
+    alignas(Align<T>) T data;
   };
 
 public:

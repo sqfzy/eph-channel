@@ -70,7 +70,7 @@ TEST(SeqLockTest, InitialState) {
     EXPECT_FALSE(sl.busy());
     
     // 初始数据应为默认构造值
-    Point p = sl.load();
+    Point p = sl.pop();
     EXPECT_EQ(p.x, 0);
     EXPECT_EQ(p.y, 0);
 }
@@ -80,22 +80,22 @@ TEST(SeqLockTest, BasicReadWrite) {
     
     // 第一次写入
     Point p1{10, 20};
-    sl.store(p1);
+    sl.push(p1);
     
     // 读取验证
-    Point p2 = sl.load();
+    Point p2 = sl.pop();
     EXPECT_EQ(p2, p1);
     
     // 第二次写入
     Point p3{30, 40};
-    sl.store(p3);
-    Point p4 = sl.load();
+    sl.push(p3);
+    Point p4 = sl.pop();
     EXPECT_EQ(p4, p3);
 }
 
 TEST(SeqLockTest, ZeroCopyApi) {
     SeqLock<Point> sl;
-    sl.store({1, 1});
+    sl.push({1, 1});
 
     // Zero-copy Write: 直接修改内部数据
     sl.write([](Point& p) {
@@ -140,14 +140,14 @@ TEST(SeqLockTest, ReaderFailsWhenWriterIsBusy) {
     
     // 断言：try_load 应该失败
     Point p;
-    EXPECT_FALSE(sl.try_load(p));
+    EXPECT_FALSE(sl.try_pop(p));
 
     // 让 Writer 完成
     reader_done.count_down(); 
     writer.join();
 
     // Writer 完成后应该能读到新数据
-    EXPECT_TRUE(sl.try_load(p));
+    EXPECT_TRUE(sl.try_pop(p));
     EXPECT_EQ(p.x, 99);
 }
 
@@ -175,7 +175,7 @@ TEST(SeqLockTest, ReaderRetriesWhenDataChanges) {
     reader_inside.wait(); 
 
     // Writer 修改数据，导致 seq 增加
-    sl.store({88, 88}); 
+    sl.push({88, 88}); 
     
     // 通知 Reader 继续（执行版本号校验）
     writer_done.count_down(); 
@@ -214,7 +214,7 @@ TEST(SeqLockTest, DataIntegrityUnderContention) {
         readers.emplace_back([&]() {
             IntegrityData local_data;
             while (running) {
-                if (sl.try_load(local_data)) {
+                if (sl.try_pop(local_data)) {
                     // 如果读取成功，数据必须有效（ID 和 Checksum 匹配）
                     // 绝不能出现：读到了新 ID 但 Checksum 还是旧的
                     ASSERT_TRUE(local_data.is_valid()) 
@@ -252,8 +252,8 @@ TEST(SeqLockTest, LargeStructSupport) {
     // 填充特定模式
     std::memset(ls.data, 0xAB, sizeof(ls.data));
     
-    sl.store(ls);
-    LargeStruct read_back = sl.load();
+    sl.push(ls);
+    LargeStruct read_back = sl.pop();
     
     EXPECT_EQ(ls, read_back);
 }
@@ -262,8 +262,8 @@ TEST(SeqLockTest, AlignmentSupport) {
     SeqLock<AlignedStruct> sl;
     
     AlignedStruct as{123};
-    sl.store(as);
-    AlignedStruct res = sl.load();
+    sl.push(as);
+    AlignedStruct res = sl.pop();
     
     EXPECT_EQ(res.val, 123);
     

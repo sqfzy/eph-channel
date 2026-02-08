@@ -45,7 +45,7 @@ end
 -- benchmarks
 -----------------------------------------------------------------------------
 if is_mode("release") then
-	for _, file in ipairs(os.files("benchmarks/*.cpp")) do
+	for _, file in ipairs(os.files("benchmarks/**.cpp")) do
 		local name = path.basename(file)
 
 		target("bench_" .. name)

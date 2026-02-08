@@ -7,7 +7,7 @@ namespace eph {
 
 
 template <typename T>
-static constexpr size_t BufferAlign = (alignof(T) > detail::CACHE_LINE_SIZE)
+static constexpr size_t Align = (alignof(T) > detail::CACHE_LINE_SIZE)
                                           ? alignof(T)
                                           : detail::CACHE_LINE_SIZE;
 

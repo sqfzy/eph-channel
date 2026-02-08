@@ -11,6 +11,7 @@
 #include <limits>
 #include <print>
 #include <string>
+#include <sys/resource.h>
 #include <variant>
 #include <vector>
 
@@ -132,6 +133,13 @@ struct Stats {
   double max_ns;
   double p50_ns;
   double p99_ns;
+
+  long majflt;       // Major Page Faults
+  long minflt;       // Minor Page Faults
+  long nvcsw;        // Voluntary Context Switches
+  long nivcsw;       // Involuntary Context Switches
+  double user_cpu_s; // User CPU time (seconds)
+  double sys_cpu_s;  // System CPU time (seconds)
 };
 
 class Recorder {
@@ -157,6 +165,20 @@ public:
     histogram_.record(static_cast<uint64_t>(cycles));
   }
 
+  void set_resource_usage(const rusage &start, const rusage &end) {
+    res_majflt_ = end.ru_majflt - start.ru_majflt;
+    res_minflt_ = end.ru_minflt - start.ru_minflt;
+    res_nvcsw_ = end.ru_nvcsw - start.ru_nvcsw;
+    res_nivcsw_ = end.ru_nivcsw - start.ru_nivcsw;
+
+    // 计算 CPU 时间差值
+    auto time_diff = [](timeval t1, timeval t2) {
+      return (t2.tv_sec - t1.tv_sec) + (t2.tv_usec - t1.tv_usec) / 1e6;
+    };
+    res_utime_s_ = time_diff(start.ru_utime, end.ru_utime);
+    res_stime_s_ = time_diff(start.ru_stime, end.ru_stime);
+  }
+
   // =========================================================
   // 报告统计数据：控制台打印
   // =========================================================
@@ -170,25 +192,43 @@ public:
     std::string title = std::format(" BENCHMARK REPORT ({}) ", time_str);
     Stats stats = compute_stats();
 
-    constexpr int w_name = 40;
-    constexpr int w_count = 10;
-    constexpr int w_data = 12;
-
-    constexpr int total_w = w_name + w_count + (w_data * 5) + 18;
+    // 定义列宽
+    constexpr int w_name = 30;
+    constexpr int w_metric = 12;
+    constexpr int total_w = w_name + (w_metric * 6) + 18;
 
     std::println("\n{:-^{}}", title, total_w);
+
+    // --- Section 1: Latency (时间延迟) ---
     std::println("{:<{}} | {:>{}} | {:>{}} | {:>{}} | {:>{}} | {:>{}} | {:>{}}",
-                 "Name", w_name, "Count", w_count, "Avg(ns)", w_data, "Min(ns)",
-                 w_data, "P50(ns)", w_data, "P99(ns)", w_data, "Max(ns)",
-                 w_data);
+                 "Task Name", w_name, "Count", w_metric, "Avg(ns)", w_metric,
+                 "P50(ns)", w_metric, "P99(ns)", w_metric, "Min(ns)", w_metric,
+                 "Max(ns)", w_metric);
 
     std::println("{:-^{}}", "", total_w);
 
-    std::println("{:<{}} | {:>{}} | {:>{}.2f} | {:>{}.2f} | {:>{}.2f} | "
-                 "{:>{}.2f} | {:>{}.2f}",
-                 stats.name, w_name, stats.count, w_count, stats.avg_ns, w_data,
-                 stats.min_ns, w_data, stats.p50_ns, w_data, stats.p99_ns,
-                 w_data, stats.max_ns, w_data);
+    std::println("{:<{}} | {:>{}} | {:>{}.1f} | {:>{}.1f} | {:>{}.1f} | "
+                 "{:>{}.1f} | {:>{}.1f}",
+                 stats.name, w_name, stats.count, w_metric, stats.avg_ns,
+                 w_metric, stats.p50_ns, w_metric, stats.p99_ns, w_metric,
+                 stats.min_ns, w_metric, stats.max_ns, w_metric);
+
+    // --- Section 2: System Resources (系统资源) ---
+    std::println("{:-^{}}", " System Resources ", total_w);
+
+    // 定义资源部分的列名
+    std::println("{:<{}} | {:>{}} | {:>{}} | {:>{}} | {:>{}} | {:>{}} | {:>{}}",
+                 "CPU Time", w_name, "User(s)", w_metric, "Sys(s)", w_metric,
+                 "MajFault", w_metric, "MinFault", w_metric, "VolCtx", w_metric,
+                 "InvCtx", w_metric);
+
+    std::println("{:-^{}}", "", total_w);
+
+    std::println("{:<{}} | {:>{}.4f} | {:>{}.4f} | {:>{}} | {:>{}} | {:>{}} | "
+                 "{:>{}}",
+                 "Usage", w_name, stats.user_cpu_s, w_metric, stats.sys_cpu_s,
+                 w_metric, stats.majflt, w_metric, stats.minflt, w_metric,
+                 stats.nvcsw, w_metric, stats.nivcsw, w_metric);
 
     std::println("{:-^{}}\n", "", total_w);
   }
@@ -218,10 +258,21 @@ public:
     "max_ns": {:.2f},
     "p50_ns": {:.2f},
     "p99_ns": {:.2f}
+  }},
+  "resources": {{
+    "major_page_faults": {},
+    "minor_page_faults": {},
+    "voluntary_context_switches": {},
+    "involuntary_context_switches": {},
+    "user_cpu_seconds": {:.4f},
+    "system_cpu_seconds": {:.4f}
   }}
 }})",
                         stats.name, time_str, stats.count, stats.avg_ns,
-                        stats.min_ns, stats.max_ns, stats.p50_ns, stats.p99_ns);
+                        stats.min_ns, stats.max_ns, stats.p50_ns, stats.p99_ns,
+                        // 新增字段
+                        stats.majflt, stats.minflt, stats.nvcsw, stats.nivcsw,
+                        stats.user_cpu_s, stats.sys_cpu_s);
 
     std::println("Stats JSON exported to: {}", path.string());
   }
@@ -253,27 +304,25 @@ public:
 
   // 计算统计值并转为纳秒
   Stats compute_stats() const {
-    if (count_ == 0) {
-      return {name_, 0, 0.0, 0.0, 0.0, 0.0, 0.0};
-    }
+    if (count_ == 0)
+      return {name_, 0, 0.0, 0.0, 0.0, 0.0, 0.0, 0, 0, 0, 0, 0.0, 0.0};
 
     double ns_per_cycle = TSC::to_ns(1);
-
     double avg_cyc = total_cycles_ / count_;
-
     double p50_cyc =
         static_cast<double>(histogram_.get_value_at_percentile(50.0));
     double p99_cyc =
         static_cast<double>(histogram_.get_value_at_percentile(99.0));
 
-    return Stats{name_,
-                 count_,
-                 avg_cyc * ns_per_cycle,
-                 min_cycles_ * ns_per_cycle,
-                 max_cycles_ * ns_per_cycle,
-                 p50_cyc * ns_per_cycle,
-                 p99_cyc * ns_per_cycle};
+    return Stats{name_, count_, avg_cyc * ns_per_cycle,
+                 min_cycles_ * ns_per_cycle, max_cycles_ * ns_per_cycle,
+                 p50_cyc * ns_per_cycle, p99_cyc * ns_per_cycle,
+                 // 传递资源数据
+                 res_majflt_, res_minflt_, res_nvcsw_, res_nivcsw_,
+                 res_utime_s_, res_stime_s_};
   }
+
+  constexpr uint64_t count() const { return count_; }
 
   // 重置记录器 (清空 Histogram)
   void reset() {
@@ -290,6 +339,13 @@ private:
   double total_cycles_ = 0.0;
   double min_cycles_ = std::numeric_limits<double>::max();
   double max_cycles_ = 0.0;
+
+  long res_majflt_ = 0;
+  long res_minflt_ = 0;
+  long res_nvcsw_ = 0;
+  long res_nivcsw_ = 0;
+  double res_utime_s_ = 0.0;
+  double res_stime_s_ = 0.0;
 
   SimpleHdrHistogram histogram_;
 
@@ -335,7 +391,7 @@ struct BenchOptions {
 
 /**
  * @brief 自动运行基准测试、打印报告并导出 JSON/CSV。
- * * @tparam Func 待测函数类型 (通常是 Lambda)
+ * @tparam Func 待测函数类型 (通常是 Lambda)
  * @param name 测试任务名称
  * @param func 待测代码块
  * @param options 配置项 (可选, 支持指定初始化)
@@ -346,6 +402,23 @@ Stats run_bench(std::string name, Func &&func, BenchOptions options = {}) {
   // 1. 准备 Recorder
   Recorder recorder(std::move(name));
 
+  // 定义单次运行逻辑
+  auto bench_once = [&]() {
+    using Ret = std::invoke_result_t<Func>;
+    if constexpr (std::is_same_v<Ret, double>) {
+      // 如果函数返回 double，直接记录其返回值
+      recorder.record(std::invoke(func));
+    } else if constexpr (std::is_same_v<Ret, std::optional<double>>) {
+      // 如果返回 optional，仅在有值时记录
+      if (auto res = std::invoke(func); res.has_value()) {
+        recorder.record(*res);
+      }
+    } else {
+      // 否则使用 measure 包装器测量执行时间
+      recorder.record(static_cast<double>(measure(func)));
+    }
+  };
+
   // 2. 预热阶段 (Warmup)
   // 目的: 填充指令缓存 (I-Cache)、激活分支预测器、甚至触发 JIT/PageFault
   for (size_t i = 0; i < options.warmup; ++i) {
@@ -355,12 +428,15 @@ Stats run_bench(std::string name, Func &&func, BenchOptions options = {}) {
     std::atomic_signal_fence(std::memory_order_relaxed);
   }
 
+  struct rusage start_ru, end_ru;
+  getrusage(RUSAGE_SELF, &start_ru);
+
   // 3. 正式测量阶段 (Benchmark)
   if (std::holds_alternative<size_t>(options.limit)) {
     // 基于次数模式
-    size_t iters = std::get<size_t>(options.limit);
-    for (size_t i = 0; i < iters; ++i) {
-      recorder.record(static_cast<double>(measure(func)));
+    size_t limit = std::get<size_t>(options.limit);
+    while (recorder.count() < limit) {
+      bench_once();
     }
   } else {
     // 基于时间模式
@@ -368,9 +444,12 @@ Stats run_bench(std::string name, Func &&func, BenchOptions options = {}) {
     auto start_time = std::chrono::steady_clock::now();
 
     while (std::chrono::steady_clock::now() - start_time < duration) {
-      recorder.record(static_cast<double>(measure(func)));
+      bench_once();
     }
   }
+
+  getrusage(RUSAGE_SELF, &end_ru);
+  recorder.set_resource_usage(start_ru, end_ru);
 
   // 4. 导出
   // 控制台报告
