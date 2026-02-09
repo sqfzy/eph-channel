@@ -35,7 +35,7 @@ int main() {
         return run_bench(title + suffix,
                          [&] {
                            buffer->push(data);
-                           auto res = buffer->pop();
+                           auto res = buffer->pop_latest();
                            do_not_optimize(res);
                          },
                          {

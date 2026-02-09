@@ -1,9 +1,10 @@
 #include <benchmark/benchmark.h>
+#include <cstdlib>
 #include <cstring>
 #include <vector>
 
 #include "eph/benchmark/cpu_topology.hpp"
-#include "eph/core/queue.hpp"
+#include "eph/core/ring_buffer.hpp"
 
 // ============================================================================
 // 辅助工具：定长载荷 (Payload)
@@ -25,22 +26,22 @@ template <> struct alignas(8) Payload<8> {
 };
 
 // ============================================================================
-// 1. BoundedQueue_PushPop<PayloadSize, BufSize>
+// 1. RingBuffer_PushPop<PayloadSize, BufSize>
 // 场景：单线程操作开销
 // ============================================================================
 
 template <size_t PayloadSize, size_t BufSize>
-static void BM_BoundedQueue_PushPop(benchmark::State &state) {
+static void BM_RingBuffer_PushPop(benchmark::State &state) {
   using T = Payload<PayloadSize>;
-  eph::BoundedQueue<T, BufSize> q;
-  T val;
-  T out;
+  eph::RingBuffer<T, BufSize> rb;
+  T in_val;
+  T out_val;
 
   for (auto _ : state) {
-    q.push(val);
-    q.pop(out);
+    rb.push(in_val);
+    rb.pop_latest(out_val);
 
-    benchmark::DoNotOptimize(out);
+    benchmark::DoNotOptimize(out_val);
     benchmark::ClobberMemory();
   }
 
@@ -48,7 +49,7 @@ static void BM_BoundedQueue_PushPop(benchmark::State &state) {
 }
 
 // ============================================================================
-// 2. BoundedQueue_PingPong<PayloadSize, BufSize>
+// 2. RingBuffer_PingPong<PayloadSize, BufSize>
 // 场景：SPSC 跨核心延迟 (Latency)
 //
 // 结构：T1 Push -> Q1 -> T2 Pop -> Q2 -> T1 Pop
@@ -56,14 +57,13 @@ static void BM_BoundedQueue_PushPop(benchmark::State &state) {
 // ============================================================================
 
 template <typename T, size_t BufSize> struct alignas(64) PingPongContext {
-  // BufSize 现在随矩阵参数变化
-  eph::BoundedQueue<T, BufSize> q1; // Thread 1 -> Thread 2
-  char padding[64];                // 强制隔离，防止伪共享 (False Sharing)
-  eph::BoundedQueue<T, BufSize> q2; // Thread 2 -> Thread 1
+  eph::RingBuffer<T, BufSize> q1; // Thread 1 -> Thread 2
+  char padding[64];              // 强制隔离，防止伪共享 (False Sharing)
+  eph::RingBuffer<T, BufSize> q2; // Thread 2 -> Thread 1
 };
 
 template <size_t PayloadSize, size_t BufSize>
-static void BM_BoundedQueue_PingPong(benchmark::State &state) {
+static void BM_RingBuffer_PingPong(benchmark::State &state) {
   using T = Payload<PayloadSize>;
 
   // 静态分配，避免栈溢出并在多次迭代间复用
@@ -87,7 +87,7 @@ static void BM_BoundedQueue_PingPong(benchmark::State &state) {
       ctx->q1.push(send_val);
 
       // Step 4: Wait for echo from T2
-      ctx->q2.pop(recv_val);
+      ctx->q2.pop_latest(recv_val);
     }
   }
   // 线程 1：Echoer (Pong)
@@ -97,7 +97,7 @@ static void BM_BoundedQueue_PingPong(benchmark::State &state) {
     T val;
     for (auto _ : state) {
       // Step 2: Wait for data from T1
-      ctx->q1.pop(val);
+      ctx->q1.pop_latest(val);
 
       // Step 3: Echo back to T1
       ctx->q2.push(val);
@@ -106,15 +106,15 @@ static void BM_BoundedQueue_PingPong(benchmark::State &state) {
 }
 
 // ============================================================================
-// 3. BoundedQueue_Throughput<PayloadSize, BufSize>
+// 3. RingBuffer_Throughput<PayloadSize, BufSize>
 // 场景：SPSC 饱和吞吐量测试
 // 生产者不停 Push，消费者不停 Pop，测量单位时间内处理的元素数量
 // ============================================================================
 
 template <size_t PayloadSize, size_t BufSize>
-static void BM_BoundedQueue_Throughput(benchmark::State &state) {
+static void BM_RingBuffer_Throughput(benchmark::State &state) {
   using T = Payload<PayloadSize>;
-  static eph::BoundedQueue<T, BufSize> q;
+  static eph::RingBuffer<T, BufSize> rb;
   static auto topology = eph::benchmark::get_cpu_topology();
 
   if (topology.size() < 2) {
@@ -127,7 +127,7 @@ static void BM_BoundedQueue_Throughput(benchmark::State &state) {
     eph::benchmark::set_thread_affinity(topology[0].hw_thread_id);
     T val;
     for (auto _ : state) {
-      q.push(val);
+      rb.push(val);
       benchmark::ClobberMemory();
     }
   } else {
@@ -135,7 +135,7 @@ static void BM_BoundedQueue_Throughput(benchmark::State &state) {
     eph::benchmark::set_thread_affinity(topology[1].hw_thread_id);
     T out;
     for (auto _ : state) {
-      q.pop(out);
+      rb.pop_latest(out);
       benchmark::DoNotOptimize(out);
     }
   }
@@ -147,7 +147,6 @@ static void BM_BoundedQueue_Throughput(benchmark::State &state) {
 // Benchmark 注册宏
 // ============================================================================
 
-// 按照 8, 64, 512 的矩阵进行注册
 #define REGISTER_MATRIX(FUNC, NAME, ...) \
   BENCHMARK_TEMPLATE(FUNC, 8, 8)->Name(NAME "/P:8/B:8") __VA_ARGS__; \
   BENCHMARK_TEMPLATE(FUNC, 8, 64)->Name(NAME "/P:8/B:64") __VA_ARGS__; \
@@ -160,12 +159,12 @@ static void BM_BoundedQueue_Throughput(benchmark::State &state) {
   BENCHMARK_TEMPLATE(FUNC, 512, 512)->Name(NAME "/P:512/B:512") __VA_ARGS__
 
 // 1. 单线程 Push/Pop
-REGISTER_MATRIX(BM_BoundedQueue_PushPop, "BM_BoundedQueue_PushPop");
+REGISTER_MATRIX(BM_RingBuffer_PushPop, "BM_RingBuffer_PushPop");
 
 // 2. 多线程 Ping-Pong 延迟
-REGISTER_MATRIX(BM_BoundedQueue_PingPong, "BM_BoundedQueue_PingPong", ->Threads(2)->UseRealTime());
+REGISTER_MATRIX(BM_RingBuffer_PingPong, "BM_RingBuffer_PingPong", ->Threads(2)->UseRealTime());
 
 // 3. 多线程 SPSC 吞吐量
-REGISTER_MATRIX(BM_BoundedQueue_Throughput, "BM_BoundedQueue_Throughput", ->Threads(2)->UseRealTime());
+REGISTER_MATRIX(BM_RingBuffer_Throughput, "BM_RingBuffer_Throughput", ->Threads(2)->UseRealTime());
 
 BENCHMARK_MAIN();

@@ -56,7 +56,7 @@ int main() {
 
         return run_bench(title + suffix,
                          [&]() -> std::optional<double> {
-                           Data out = buffer->pop();
+                           Data out = buffer->pop_latest();
                            uint64_t diff_sum = out.sum_tsc - last_sum_tsc;
                            uint64_t diff_count = out.count - last_count;
 

@@ -19,9 +19,13 @@ using namespace eph::detail;
  *
  * @section 特性
  * 1. **Writer Wait-free**: 写入者仅需更新本地索引和原子序列号，无需自旋或阻塞。
- * 2. **Reader Lock-free**: 读取者通过乐观读取 (Optimistic Read) 获取数据，极低概率重试。
- * 3. **Shadow Indexing**: 写入者维护本地影子索引，避免对共享的全局索引进行原子读取 (RMW)，显著降低总线竞争。
- * 4. **Cache Friendly**: 核心数据结构经过严格的 Cache Line 对齐，消除伪共享 (False Sharing)。
+ * 2. **Reader Lock-free**: 读取者通过乐观读取 (Optimistic Read)
+ * 获取数据，极低概率重试。
+ * 3. **Shadow Indexing**:
+ * 写入者维护本地影子索引，避免对共享的全局索引进行原子读取
+ * (RMW)，降低总线竞争。
+ * 4. **Cache Friendly**: 核心数据结构经过严格的 Cache Line 对齐，消除伪共享
+ * (False Sharing)。
  *
  * @tparam T 数据类型 (必须满足 TriviallyCopyable 概念，以允许位拷贝)
  * @tparam N 缓冲槽位数量，必须是 2 的幂。
@@ -30,8 +34,8 @@ template <typename T, size_t N = 8>
   requires ShmData<T>
 class alignas(Align<T>) RingBuffer {
   static_assert((N & (N - 1)) == 0, "Buffer size N must be power of 2");
-  static_assert(N > 1,
-                "Primary template requires N > 1, use N=1 for single slot mode");
+  static_assert(
+      N > 1, "Primary template requires N > 1, use N=1 for single slot mode");
 
 private:
   /**
@@ -42,7 +46,7 @@ private:
    * - 偶数 (Even): 数据处于稳定一致状态，可安全读取。
    * - 奇数 (Odd): 数据正在被写入，处于不一致状态。
    */
-  struct alignas(Align<T>) Slot {
+  struct Slot {
     std::atomic<uint64_t> seq{0};
     T data_{};
   };
@@ -62,8 +66,8 @@ private:
    * @brief 影子索引 (Shadow Index)
    *
    * 仅由 Writer 维护和访问的本地索引副本。
-   * 作用：Writer 在计算写入位置时，无需读取可能被 Reader 频繁访问的 global_index_，
-   * 从而避免引发 Cache Coherency Traffic (缓存一致性流量)。
+   * 作用：Writer 在计算写入位置时，无需读取可能被 Reader 频繁访问的
+   * global_index_， 从而避免引发 Cache Coherency Traffic (缓存一致性流量)。
    */
   alignas(Align<T>) uint64_t writer_index_{0};
 
@@ -78,7 +82,8 @@ private:
    * - Writer: 只写 (Release语义)。
    * - Reader: 只读 (Acquire语义)。
    *
-   * @note 通过 alignas 强制将其置于独立的 Cache Line，防止与 writer_index_ 发生伪共享。
+   * @note 通过 alignas 强制将其置于独立的 Cache Line，防止与 writer_index_
+   * 发生伪共享。
    */
   alignas(Align<T>) std::atomic<uint64_t> global_index_{0};
 
@@ -116,7 +121,7 @@ public:
     // 2. 标记开始写入：seq 变为奇数
     // 使用 Relaxed load 因为此处只有 Writer 线程修改 seq
     uint64_t start_seq = s.seq.load(std::memory_order_relaxed);
-    
+
     // 使用 Release 语义确保后续的数据写入不会被重排到此操作之前
     s.seq.store(start_seq + 1, std::memory_order_release);
 
@@ -138,7 +143,8 @@ public:
   /**
    * @brief 零拷贝写入 (In-place Construction)
    *
-   * 允许直接在 RingBuffer 的内部存储中构造或修改对象，避免中间临时对象的拷贝开销。
+   * 允许直接在 RingBuffer
+   * 的内部存储中构造或修改对象，避免中间临时对象的拷贝开销。
    *
    * @tparam F 回调函数类型: void(T& slot_data)
    * @param writer 用于填充数据的回调函数
@@ -182,7 +188,7 @@ public:
 
     // 2. 读取开始前的版本号 (Acquire 语义)
     uint64_t seq1 = s.seq.load(std::memory_order_acquire);
-    
+
     // 如果版本号为奇数，说明 Writer 正在写入，立即失败
     if (seq1 & 1)
       return false;
@@ -205,7 +211,7 @@ public:
    * @param out [out] 读取成功时填充目标对象
    * @return true 成功; false 发生竞争
    */
-  bool try_pop(T &out) const noexcept {
+  bool try_pop_latest(T &out) const noexcept {
     uint64_t idx = global_index_.load(std::memory_order_acquire);
     const Slot &s = slots_[idx & (N - 1)];
 
@@ -227,12 +233,19 @@ public:
 
   /**
    * @brief 阻塞式读取 (自旋直到成功)
-   *
-   * 包含 cpu_relax() 以在自旋等待时提示 CPU 降低功耗或释放流水线资源。
    */
-  T pop() const noexcept {
+  void pop_latest(T &out) const noexcept {
+    while (!try_pop_latest(out)) {
+      cpu_relax();
+    }
+  }
+
+  /**
+   * @brief 阻塞式读取 (自旋直到成功)
+   */
+  T pop_latest() const noexcept {
     T out;
-    while (!try_pop(out)) {
+    while (!try_pop_latest(out)) {
       cpu_relax();
     }
     return out;
@@ -379,17 +392,18 @@ public:
 
     // Load-Load Barrier
     std::atomic_thread_fence(std::memory_order_acquire);
-    
+
     // 读取结束 seq (Relaxed)
     uint64_t seq2 = s.seq.load(std::memory_order_relaxed);
 
     return seq1 == seq2;
   }
 
-  bool try_pop(T &out) const noexcept {
+  bool try_pop_latest(T &out) const noexcept {
     // 1. 获取索引
     const uint8_t idx = global_idx_.load(std::memory_order_acquire);
-    if (idx >= 3) [[unlikely]] return false;
+    if (idx >= 3) [[unlikely]]
+      return false;
 
     const Slot &s = slots_[idx];
 
@@ -407,9 +421,9 @@ public:
     return seq1 == seq2;
   }
 
-  T pop() const noexcept {
+  T pop_latest() const noexcept {
     T out;
-    while (!try_pop(out)) {
+    while (!try_pop_latest(out)) {
       cpu_relax();
     }
     return out;
@@ -420,12 +434,14 @@ public:
  * @brief 顺序锁 (SeqLock) - RingBuffer 的单槽位特化版本 (N=1)
  *
  * 这是一个标准的单生产者-多消费者 (SPMC) 顺序锁实现。
- * 相比通用的 RingBuffer，它移除了 global_index 的维护开销，具有极致的内存紧凑性。
+ * 相比通用的 RingBuffer，它移除了 global_index
+ * 的维护开销，具有极致的内存紧凑性。
  *
  * @note 内存布局与伪共享：
  * 虽然代码尝试将类对齐到 Cache Line，但由于 N=1，Seq(8B) 和 Data(T)
  * 通常位于同一个 Cache Line 中。这意味着读写操作会竞争同一个 Cache Line，
- * 在高并发场景下可能导致 Ping-pong 效应。适用于写入频率较低或 T 体积极小的场景。
+ * 在高并发场景下可能导致 Ping-pong 效应。适用于写入频率较低或 T
+ * 体积极小的场景。
  *
  * @tparam T 数据类型
  */
@@ -492,9 +508,9 @@ public:
    * @brief 尝试零拷贝读取 (Visitor Pattern)
    *
    * @warning 关于数据竞争 (Data Race) 的说明：
-   * 在 C++ 内存模型中，如果此时 Writer 正在写入 data_，而 Reader 正在读取 data_，
-   * 严格来说构成了 Data Race，属于未定义行为 (UB)。
-   * 但是，通过 ShmData<T> 约束 T 必须是 TriviallyCopyable，在现代主流架构 (x86/ARM) 上，
+   * 在 C++ 内存模型中，如果此时 Writer 正在写入 data_，而 Reader 正在读取
+   * data_， 严格来说构成了 Data Race，属于未定义行为 (UB)。 但是，通过
+   * ShmData<T> 约束 T 必须是 TriviallyCopyable，在现代主流架构 (x86/ARM) 上，
    * 这种读取是安全的——即便读到了撕裂的(torn)数据，程序也不会崩溃。
    * 我们通过前后的 seq 校验来丢弃撕裂的数据。
    *
@@ -528,7 +544,7 @@ public:
   }
 
   /// 尝试值拷贝读取
-  bool try_pop(T &out) const noexcept {
+  bool try_pop_latest(T &out) const noexcept {
     return try_read([&out](const T &slot) { out = slot; });
   }
 
@@ -540,7 +556,7 @@ public:
   }
 
   /// 阻塞式值拷贝读取
-  T pop() const noexcept {
+  T pop_latest() const noexcept {
     T out;
     read([&out](const T &slot) { out = slot; });
     return out;
@@ -555,10 +571,5 @@ public:
     return seq_.load(std::memory_order_relaxed) & 1;
   }
 };
-
-/**
- * @brief 别名定义：SeqLock 即为单槽位的 RingBuffer
- */
-template <typename T> using SeqLock = RingBuffer<T, 1>;
 
 } // namespace eph

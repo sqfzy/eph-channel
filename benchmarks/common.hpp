@@ -15,33 +15,35 @@ using AAOD_Type = std::variant<size_t, std::chrono::seconds>;
 
 // 辅助函数：从字符串解析配置
 inline AAOD_Type load_limit() {
-    const char* env_p = std::getenv("AAOD_LIMIT");
-    if (!env_p) {
-        return size_t(100000000); // 默认值
-    }
+  const char *env_p = std::getenv("AAOD_LIMIT");
+  if (!env_p) {
+    return size_t(100'000'000); // 默认值
+  }
 
-    std::string_view sv(env_p);
-    
-    // 如果以 's' 结尾，解析为秒
-    if (sv.ends_with('s')) {
-        size_t val = 0;
-        auto [ptr, ec] = std::from_chars(sv.data(), sv.data() + sv.size() - 1, val);
-        if (ec == std::errc{}) return std::chrono::seconds(val);
-    } else {
-        // 否则解析为 size_t
-        size_t val = 0;
-        auto [ptr, ec] = std::from_chars(sv.data(), sv.data() + sv.size(), val);
-        if (ec == std::errc{}) return val;
-    }
+  std::string_view sv(env_p);
 
-    std::print("Warning: Failed to parse AAOD_LIMIT, using default.\n");
-    return size_t(100000000);
+  // 如果以 's' 结尾，解析为秒
+  if (sv.ends_with('s')) {
+    size_t val = 0;
+    auto [ptr, ec] = std::from_chars(sv.data(), sv.data() + sv.size() - 1, val);
+    if (ec == std::errc{})
+      return std::chrono::seconds(val);
+  } else {
+    // 否则解析为 size_t
+    size_t val = 0;
+    auto [ptr, ec] = std::from_chars(sv.data(), sv.data() + sv.size(), val);
+    if (ec == std::errc{})
+      return val;
+  }
+
+  std::print("Warning: Failed to parse AAOD_LIMIT, using default.\n");
+  return size_t(100'000'000);
 }
 
 // 运行时初始化
 const AAOD_Type AAOD_LIMIT = load_limit();
 
-template <size_t Bytes> struct alignas(64) MockData {
+template <size_t Bytes> struct MockData {
   std::array<std::byte, Bytes> payload;
 };
 

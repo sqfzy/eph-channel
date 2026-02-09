@@ -12,7 +12,7 @@ end
 -- 依赖管理
 -----------------------------------------------------------------------------
 -- vcpkg 2.** 版本太低，需要最新版
-add_requires("gtest", "tabulate", { optional = true })
+add_requires("gtest", "tabulate", "benchmark", { optional = true })
 
 -----------------------------------------------------------------------------
 -- 核心库 (header-only)
@@ -55,6 +55,7 @@ if is_mode("release") then
 		    add_files(file)
 		    add_deps("eph")
             add_packages("tabulate")
+            add_packages("benchmark")
 		    add_syslinks("pthread")
 	end
 end

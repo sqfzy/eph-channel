@@ -41,7 +41,7 @@ int main() {
 
         return run_bench(title + suffix,
                          [&] {
-                           Data out = buffer->pop();
+                           Data out = buffer->pop_latest();
 
                            if (out.head_canary != out.tail_canary) {
                              std::print(
