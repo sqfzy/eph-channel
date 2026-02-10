@@ -40,21 +40,32 @@ jobs:
         xmake f -m release -y
         xmake -y --all
 
-    # 5. 运行自动化性能基准测试与分析
-    # 使用 --err 参数：如果 Bencher 推断出性能退化，CI 将报错拦截
-    - name: Continuous Benchmarking with Bencher
+    # 5. 运行单元测试
+    - name: Run Tests
       run: |
-        bencher run \
-          --project ephemeral \
-          --token ${{ secrets.BENCHER_API_TOKEN }} \
-          --adapter cpp_google \
-          --err \
-          "xmake run --group=benchmarks --benchmark_format=json"
+        xmake run --group=tests
+
+    # 6. 运行自动化性能基准测试与分析
+    # 使用 --err 参数：如果 Bencher 推断出性能退化，CI 将报错拦截
+    - name: Run Benchmarks with Bencher
+      run: |
+        for file in benchmarks/*.cpp; do
+            target="bench_$(basename "$file" .cpp)"
+            
+            echo "Running Bencher for: $target"
+            
+            bencher run \
+              --project ephemeral \
+              --token ${{ secrets.BENCHER_API_TOKEN }} \
+              --adapter cpp_google \
+              --err \
+              "xmake run $target --benchmark_format=json"
+        done
       env:
         # 建议在 GitHub Repository Settings -> Secrets 中设置此 Token
         BENCHER_API_TOKEN: ${{ secrets.BENCHER_API_TOKEN }}
 
-    # 6. (可选) 导出结果数据备查
+    # 7. (可选) 导出结果数据备查
     - name: Upload Build Artifacts
       if: always()
       uses: actions/upload-artifact@v4
