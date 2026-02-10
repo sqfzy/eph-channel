@@ -16,11 +16,11 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    # 1. 配置 C++23 环境 (GCC 13+)
-    - name: Install GCC 13
+    # 1. 配置 C++23 环境及系统依赖
+    - name: Install System Dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y gcc-13 g++-13
+        sudo apt-get install -y gcc-13 g++-13 libnuma-dev
         sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-13 100 --slave /usr/bin/g++ g++ /usr/bin/g++-13
 
     # 2. 安装 xmake
