@@ -1,0 +1,63 @@
+name: Ephemeral Continuous Integration
+
+# 触发条件：推送到 main 分支或提交 Pull Request
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build-and-bench:
+    # 使用最新的 Ubuntu 环境
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    # 1. 配置 C++23 环境 (GCC 13+)
+    - name: Install GCC 13
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y gcc-13 g++-13
+        sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-13 100 --slave /usr/bin/g++ g++ /usr/bin/g++-13
+
+    # 2. 安装 xmake
+    - name: Setup xmake
+      uses: xmake-io/github-action-setup@v1
+      with:
+        xmake-version: latest
+
+    # 3. 安装 Bencher CLI
+    - name: Install Bencher
+      run: |
+        curl --proto '=https' --tlsv1.2 -sSfL https://bencher.dev/download/install-cli.sh | sh
+
+    # 4. 编译项目 (Release 模式以保证性能测试准确)
+    - name: Build Project
+      run: |
+        xmake f -m release
+        xmake -y --all
+
+    # 5. 运行自动化性能基准测试与分析
+    # 使用 --err 参数：如果 Bencher 推断出性能退化，CI 将报错拦截
+    - name: Continuous Benchmarking with Bencher
+      run: |
+        bencher run \
+          --project ephemeral \
+          --token ${{ secrets.BENCHER_API_TOKEN }} \
+          --adapter cpp_google \
+          --err \
+          "xmake run --group=benchmarks --benchmark_format=json"
+      env:
+        # 建议在 GitHub Repository Settings -> Secrets 中设置此 Token
+        BENCHER_API_TOKEN: ${{ secrets.BENCHER_API_TOKEN }}
+
+    # 6. (可选) 导出结果数据备查
+    - name: Upload Build Artifacts
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: benchmark-results
+        path: build/
