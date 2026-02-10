@@ -37,7 +37,7 @@ jobs:
     # 4. 编译项目 (Release 模式以保证性能测试准确)
     - name: Build Project
       run: |
-        xmake f -m release
+        xmake f -m release -y
         xmake -y --all
 
     # 5. 运行自动化性能基准测试与分析
