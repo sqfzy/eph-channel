@@ -146,6 +146,7 @@ class Recorder {
 public:
   explicit Recorder(std::string name) : name_(std::move(name)) {
     // Histogram 已经在构造函数中分配好内存
+    TSC::init();
   }
 
   // =========================================================
