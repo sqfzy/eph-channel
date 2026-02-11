@@ -16,7 +16,17 @@ namespace eph {
 namespace detail {
 constexpr std::size_t CACHE_LINE_SIZE = 64;
 constexpr size_t HUGE_PAGE_SIZE = 2 * 1024 * 1024; // 2MB
-}
+} // namespace detail
+
+#if defined(_MSC_VER)
+    #include <intrin.h>
+    #define ALWAYS_INLINE  __forceinline
+#elif defined(__GNUC__) || defined(__clang__)
+    // 兼容 GCC 和 Clang，涵盖 x86_64 和 aarch64
+    #define ALWAYS_INLINE __attribute__((always_inline)) inline
+#else
+    #define ALWAYS_INLINE inline
+#endif
 
 /**
  * @brief CPU 自旋等待策略 (Hint 指令)

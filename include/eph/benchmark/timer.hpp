@@ -1,5 +1,6 @@
 #pragma once
 
+#include "eph/platform.hpp"
 #include <algorithm>
 #include <atomic>
 #include <cassert>
@@ -8,19 +9,7 @@
 #include <cstdint>
 #include <functional>
 #include <print>
-
-// 平台检测与内联宏定义
-#if defined(_MSC_VER)
-#include <intrin.h>
-#define ALWAYS_INLINE __forceinline
-#elif defined(__x86_64__) || defined(__i386__)
 #include <x86intrin.h>
-#define ALWAYS_INLINE __attribute__((always_inline)) inline
-#elif defined(__aarch64__)
-#define ALWAYS_INLINE __attribute__((always_inline)) inline
-#else
-#define ALWAYS_INLINE inline
-#endif
 
 namespace eph::benchmark {
 

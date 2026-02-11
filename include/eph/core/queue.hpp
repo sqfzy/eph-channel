@@ -57,8 +57,16 @@ private:
   /// 核心数据存储区
   alignas(Align<T>) std::array<T, Capacity> buffer_;
 
+public:
+  BoundedQueue() noexcept {
+    consumer_.head_.store(0, std::memory_order_relaxed);
+    producer_.tail_.store(0, std::memory_order_relaxed);
+    consumer_.shadow_tail_ = 0;
+    producer_.shadow_head_ = 0;
+  }
+
   // ===========================================================================
-  // 内部内核 (Internal Kernels)
+  // PUSH 操作 (Producer Operations)
   // ===========================================================================
 
   /**
@@ -89,47 +97,6 @@ private:
     producer_.tail_.store(tail + 1, std::memory_order_release);
     return true;
   }
-
-  /**
-   * @brief 消费逻辑内核
-   */
-  template <typename F> bool raw_consume(F &&visitor) noexcept {
-    // 1. 获取本地读取索引 (Relaxed)
-    const size_t head = consumer_.head_.load(std::memory_order_relaxed);
-
-    // 2. 快速路径：使用影子索引检查是否有数据
-    // shadow_tail_ 是 tail_ 的历史快照，一定 <= 实际 tail_。
-    if (consumer_.shadow_tail_ == head) {
-
-      // 3. 慢速路径：影子索引认为已空，重新加载最新的全局 tail_ (Acquire)
-      const size_t tail = producer_.tail_.load(std::memory_order_acquire);
-      consumer_.shadow_tail_ = tail; // 更新本地缓存
-
-      // 4. 再次检查真实状态
-      if (head == tail) {
-        return false; // Empty
-      }
-    }
-
-    // 5. 访问缓冲区数据
-    std::forward<F>(visitor)(buffer_[head & mask_]);
-
-    // 6. 发布新的读取索引 (Release)
-    consumer_.head_.store(head + 1, std::memory_order_release);
-    return true;
-  }
-
-public:
-  BoundedQueue() noexcept {
-    consumer_.head_.store(0, std::memory_order_relaxed);
-    producer_.tail_.store(0, std::memory_order_relaxed);
-    consumer_.shadow_tail_ = 0;
-    producer_.shadow_head_ = 0;
-  }
-
-  // ===========================================================================
-  // PUSH 操作 (Producer Operations)
-  // ===========================================================================
 
   /**
    * @brief 尝试零拷贝写入
@@ -184,6 +151,35 @@ public:
   // ===========================================================================
   // POP 操作 (Consumer Operations)
   // ===========================================================================
+
+  /**
+   * @brief 消费逻辑内核
+   */
+  template <typename F> bool raw_consume(F &&visitor) noexcept {
+    // 1. 获取本地读取索引 (Relaxed)
+    const size_t head = consumer_.head_.load(std::memory_order_relaxed);
+
+    // 2. 快速路径：使用影子索引检查是否有数据
+    // shadow_tail_ 是 tail_ 的历史快照，一定 <= 实际 tail_。
+    if (consumer_.shadow_tail_ == head) {
+
+      // 3. 慢速路径：影子索引认为已空，重新加载最新的全局 tail_ (Acquire)
+      const size_t tail = producer_.tail_.load(std::memory_order_acquire);
+      consumer_.shadow_tail_ = tail; // 更新本地缓存
+
+      // 4. 再次检查真实状态
+      if (head == tail) {
+        return false; // Empty
+      }
+    }
+
+    // 5. 访问缓冲区数据
+    std::forward<F>(visitor)(buffer_[head & mask_]);
+
+    // 6. 发布新的读取索引 (Release)
+    consumer_.head_.store(head + 1, std::memory_order_release);
+    return true;
+  }
 
   /**
    * @brief 尝试零拷贝读取

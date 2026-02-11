@@ -49,7 +49,7 @@ jobs:
     # 使用 --err 参数：如果 Bencher 推断出性能退化，CI 将报错拦截
     - name: Run Benchmarks with Bencher
       run: |
-        for file in benchmarks/*.cpp; do
+        for file in benchmarks/bencher/**.cpp; do
             target="bench_$(basename "$file" .cpp)"
             
             echo "Running Bencher for: $target"
