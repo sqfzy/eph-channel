@@ -57,7 +57,6 @@ jobs:
             bencher run \
               --project ephemeral \
               --token ${{ secrets.BENCHER_API_TOKEN }} \
-              --adapter cpp_google \
               --err \
               "xmake run $target --benchmark_format=json"
         done

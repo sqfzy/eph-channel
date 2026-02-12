@@ -36,7 +36,7 @@ static void BM_BoundedQueue_PushPop(benchmark::State &state) {
   T val;
   T out;
 
-  for (auto _ : state) {
+  for ([[maybe_unused]] auto _ : state) {
     q.push(val);
     q.pop(out);
 
@@ -44,6 +44,31 @@ static void BM_BoundedQueue_PushPop(benchmark::State &state) {
     benchmark::ClobberMemory();
   }
 
+  state.SetItemsProcessed(state.iterations() * 2);
+}
+
+template <size_t PayloadSize, size_t BufSize>
+static void BM_BoundedQueue_ZeroCopy_PushPop(benchmark::State &state) {
+  using T = Payload<PayloadSize>;
+  eph::BoundedQueue<T, BufSize> q;
+
+  for ([[maybe_unused]] auto _ : state) {
+    q.produce([](T &slot) {
+      if constexpr (PayloadSize == 8)
+        slot.v = 1;
+      else
+        slot.data[0] = 1;
+    });
+
+    q.consume([](T &slot) {
+      if constexpr (PayloadSize == 8)
+        benchmark::DoNotOptimize(slot.v);
+      else
+        benchmark::DoNotOptimize(slot.data[0]);
+    });
+
+    benchmark::ClobberMemory();
+  }
   state.SetItemsProcessed(state.iterations() * 2);
 }
 
@@ -58,7 +83,7 @@ static void BM_BoundedQueue_PushPop(benchmark::State &state) {
 template <typename T, size_t BufSize> struct alignas(64) PingPongContext {
   // BufSize 现在随矩阵参数变化
   eph::BoundedQueue<T, BufSize> q1; // Thread 1 -> Thread 2
-  char padding[64];                // 强制隔离，防止伪共享 (False Sharing)
+  char padding[64];                 // 强制隔离，防止伪共享 (False Sharing)
   eph::BoundedQueue<T, BufSize> q2; // Thread 2 -> Thread 1
 };
 
@@ -82,7 +107,7 @@ static void BM_BoundedQueue_PingPong(benchmark::State &state) {
     T send_val;
     T recv_val;
 
-    for (auto _ : state) {
+    for ([[maybe_unused]] auto _ : state) {
       // Step 1: Send to T2
       ctx->q1.push(send_val);
 
@@ -95,12 +120,53 @@ static void BM_BoundedQueue_PingPong(benchmark::State &state) {
     eph::benchmark::set_thread_affinity(topology[1].hw_thread_id);
 
     T val;
-    for (auto _ : state) {
+    for ([[maybe_unused]] auto _ : state) {
       // Step 2: Wait for data from T1
       ctx->q1.pop(val);
 
       // Step 3: Echo back to T1
       ctx->q2.push(val);
+    }
+  }
+}
+
+template <size_t PayloadSize, size_t BufSize>
+static void BM_BoundedQueue_ZeroCopy_PingPong(benchmark::State &state) {
+  using T = Payload<PayloadSize>;
+  static PingPongContext<T, BufSize> *ctx = new PingPongContext<T, BufSize>();
+  static auto topology = eph::benchmark::get_cpu_topology();
+
+  if (topology.size() < 2) {
+    state.SkipWithError("Need at least 2 cores");
+    return;
+  }
+
+  // 辅助 Lambda：模拟最小化写入
+  auto writer = [](T &slot) {
+    if constexpr (PayloadSize == 8)
+      slot.v = 1;
+    else
+      slot.data[0] = 1;
+  };
+  // 辅助 Lambda：模拟最小化读取
+  auto reader = [](T &slot) {
+    if constexpr (PayloadSize == 8)
+      benchmark::DoNotOptimize(slot.v);
+    else
+      benchmark::DoNotOptimize(slot.data[0]);
+  };
+
+  if (state.thread_index() == 0) {
+    eph::benchmark::set_thread_affinity(topology[0].hw_thread_id);
+    for ([[maybe_unused]] auto _ : state) {
+      ctx->q1.produce(writer); // Block wait
+      ctx->q2.consume(reader); // Block wait
+    }
+  } else {
+    eph::benchmark::set_thread_affinity(topology[1].hw_thread_id);
+    for ([[maybe_unused]] auto _ : state) {
+      ctx->q1.consume(reader);
+      ctx->q2.produce(writer);
     }
   }
 }
@@ -126,7 +192,7 @@ static void BM_BoundedQueue_Throughput(benchmark::State &state) {
     // 生产者线程
     eph::benchmark::set_thread_affinity(topology[0].hw_thread_id);
     T val;
-    for (auto _ : state) {
+    for ([[maybe_unused]] auto _ : state) {
       q.push(val);
       benchmark::ClobberMemory();
     }
@@ -134,7 +200,7 @@ static void BM_BoundedQueue_Throughput(benchmark::State &state) {
     // 消费者线程
     eph::benchmark::set_thread_affinity(topology[1].hw_thread_id);
     T out;
-    for (auto _ : state) {
+    for ([[maybe_unused]] auto _ : state) {
       q.pop(out);
       benchmark::DoNotOptimize(out);
     }
@@ -143,29 +209,73 @@ static void BM_BoundedQueue_Throughput(benchmark::State &state) {
   state.SetItemsProcessed(state.iterations());
 }
 
+template <size_t PayloadSize, size_t BufSize>
+static void BM_BoundedQueue_ZeroCopy_Throughput(benchmark::State &state) {
+  using T = Payload<PayloadSize>;
+  static eph::BoundedQueue<T, BufSize> q;
+  static auto topology = eph::benchmark::get_cpu_topology();
+
+  if (topology.size() < 2) {
+    state.SkipWithError("Need at least 2 cores");
+    return;
+  }
+
+  if (state.thread_index() == 0) {
+    eph::benchmark::set_thread_affinity(topology[0].hw_thread_id);
+    auto writer = [](T &slot) {
+      if constexpr (PayloadSize == 8)
+        slot.v = 1;
+      else
+        slot.data[0] = 1;
+    };
+    for ([[maybe_unused]] auto _ : state) {
+      q.produce(writer);
+    }
+  } else {
+    eph::benchmark::set_thread_affinity(topology[1].hw_thread_id);
+    auto reader = [](const T &slot) {
+      if constexpr (PayloadSize == 8) {
+        auto v = slot.v;             
+        benchmark::DoNotOptimize(v); 
+      } else {
+        auto d = slot.data[0];
+        benchmark::DoNotOptimize(d);
+      }
+    };
+    for ([[maybe_unused]] auto _ : state) {
+      q.consume(reader);
+    }
+  }
+  state.SetItemsProcessed(state.iterations());
+}
+
 // ============================================================================
 // Benchmark 注册宏
 // ============================================================================
 
 // 按照 8, 64, 512 的矩阵进行注册
-#define REGISTER_MATRIX(FUNC, NAME, ...) \
-  BENCHMARK_TEMPLATE(FUNC, 8, 8)->Name(NAME "/P:8/B:8") __VA_ARGS__; \
-  BENCHMARK_TEMPLATE(FUNC, 8, 64)->Name(NAME "/P:8/B:64") __VA_ARGS__; \
-  BENCHMARK_TEMPLATE(FUNC, 8, 512)->Name(NAME "/P:8/B:512") __VA_ARGS__; \
-  BENCHMARK_TEMPLATE(FUNC, 64, 8)->Name(NAME "/P:64/B:8") __VA_ARGS__; \
-  BENCHMARK_TEMPLATE(FUNC, 64, 64)->Name(NAME "/P:64/B:64") __VA_ARGS__; \
-  BENCHMARK_TEMPLATE(FUNC, 64, 512)->Name(NAME "/P:64/B:512") __VA_ARGS__; \
-  BENCHMARK_TEMPLATE(FUNC, 512, 8)->Name(NAME "/P:512/B:8") __VA_ARGS__; \
-  BENCHMARK_TEMPLATE(FUNC, 512, 64)->Name(NAME "/P:512/B:64") __VA_ARGS__; \
-  BENCHMARK_TEMPLATE(FUNC, 512, 512)->Name(NAME "/P:512/B:512") __VA_ARGS__
+#define REGISTER_MATRIX(FUNC, ...)                                             \
+  BENCHMARK_TEMPLATE(FUNC, 8, 8)->Name(#FUNC "/P:8/B:8") __VA_ARGS__;          \
+  BENCHMARK_TEMPLATE(FUNC, 8, 64)->Name(#FUNC "/P:8/B:64") __VA_ARGS__;        \
+  BENCHMARK_TEMPLATE(FUNC, 8, 512)->Name(#FUNC "/P:8/B:512") __VA_ARGS__;      \
+  BENCHMARK_TEMPLATE(FUNC, 64, 8)->Name(#FUNC "/P:64/B:8") __VA_ARGS__;        \
+  BENCHMARK_TEMPLATE(FUNC, 64, 64)->Name(#FUNC "/P:64/B:64") __VA_ARGS__;      \
+  BENCHMARK_TEMPLATE(FUNC, 64, 512)->Name(#FUNC "/P:64/B:512") __VA_ARGS__;    \
+  BENCHMARK_TEMPLATE(FUNC, 512, 8)->Name(#FUNC "/P:512/B:8") __VA_ARGS__;      \
+  BENCHMARK_TEMPLATE(FUNC, 512, 64)->Name(#FUNC "/P:512/B:64") __VA_ARGS__;    \
+  BENCHMARK_TEMPLATE(FUNC, 512, 512)->Name(#FUNC "/P:512/B:512") __VA_ARGS__
 
 // 1. 单线程 Push/Pop
-REGISTER_MATRIX(BM_BoundedQueue_PushPop, "BM_BoundedQueue_PushPop");
+REGISTER_MATRIX(BM_BoundedQueue_PushPop);
+REGISTER_MATRIX(BM_BoundedQueue_ZeroCopy_PushPop);
 
 // 2. 多线程 Ping-Pong 延迟
-REGISTER_MATRIX(BM_BoundedQueue_PingPong, "BM_BoundedQueue_PingPong", ->Threads(2)->UseRealTime());
+REGISTER_MATRIX(BM_BoundedQueue_PingPong, ->Threads(2)->UseRealTime());
+REGISTER_MATRIX(BM_BoundedQueue_ZeroCopy_PingPong, ->Threads(2)->UseRealTime());
 
 // 3. 多线程 SPSC 吞吐量
-REGISTER_MATRIX(BM_BoundedQueue_Throughput, "BM_BoundedQueue_Throughput", ->Threads(2)->UseRealTime());
+REGISTER_MATRIX(BM_BoundedQueue_Throughput, ->Threads(2)->UseRealTime());
+REGISTER_MATRIX(
+    BM_BoundedQueue_ZeroCopy_Throughput, ->Threads(2)->UseRealTime());
 
 BENCHMARK_MAIN();

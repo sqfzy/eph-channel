@@ -22,6 +22,6 @@ wheels/
 *.log
 *.json
 *.html
-temp/
+/temp/
 notes/
 outputs/
